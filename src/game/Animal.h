@@ -13,6 +13,9 @@ enum class AnimalKind : std::uint8_t {
     Rabbit,
     Fox,
     Boar,
+    Deer,
+    Wolf,
+    Chicken,
     Fish
 };
 

@@ -483,6 +483,28 @@ float PropBaseY(int y, int tileSize, PropType propType) {
     (void)propType;
     return (static_cast<float>(y) * tile) + tile;
 }
+
+bool IsSoftGroundProp(PropType prop) {
+    return prop == PropType::Bush || prop == PropType::TallGrass || prop == PropType::FlowerPatch;
+}
+
+bool OverlapsClearedGround(float x, float y, float w, float h, const std::vector<SDL_FRect>* clearedGround) {
+    if (clearedGround == nullptr) {
+        return false;
+    }
+
+    for (const SDL_FRect& rect : *clearedGround) {
+        const bool overlap =
+            x < (rect.x + rect.w) &&
+            (x + w) > rect.x &&
+            y < (rect.y + rect.h) &&
+            (y + h) > rect.y;
+        if (overlap) {
+            return true;
+        }
+    }
+    return false;
+}
 }
 
 TileMap::TileMap(int tileSize) : tileSize_(tileSize) {}
@@ -547,6 +569,24 @@ bool TileMap::IsBlockedAt(float worldX, float worldY, int currentLayer) const {
 
     return prop == PropType::Tree || prop == PropType::Rock || prop == PropType::House || prop == PropType::AppleTree ||
         prop == PropType::BerryTree || prop == PropType::PearTree;
+}
+
+bool TileMap::HasBlockingObstacleInRect(float worldX, float worldY, float width, float height, int currentLayer) const {
+    const int startX = WorldToTile(worldX, tileSize_);
+    const int startY = WorldToTile(worldY, tileSize_);
+    const int endX = WorldToTile(worldX + width - 0.01f, tileSize_);
+    const int endY = WorldToTile(worldY + height - 0.01f, tileSize_);
+
+    for (int ty = startY; ty <= endY; ++ty) {
+        for (int tx = startX; tx <= endX; ++tx) {
+            const float sampleX = (static_cast<float>(tx) + 0.5f) * static_cast<float>(tileSize_);
+            const float sampleY = (static_cast<float>(ty) + 0.5f) * static_cast<float>(tileSize_);
+            if (IsBlockedAt(sampleX, sampleY, currentLayer)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 bool TileMap::CanMoveLayer(float worldX, float worldY, int currentLayer, bool moveUp, int& outLayer) const {
@@ -767,7 +807,7 @@ void TileMap::DrawGround(SDL_Renderer* renderer, const Camera2D& camera, int cur
     }
 }
 
-void TileMap::DrawShadows(SDL_Renderer* renderer, const Camera2D& camera, int currentLayer) const {
+void TileMap::DrawShadows(SDL_Renderer* renderer, const Camera2D& camera, int currentLayer, const std::vector<SDL_FRect>* clearedGround) const {
     const int startX = static_cast<int>(std::floor(camera.x / static_cast<float>(tileSize_))) - 3;
     const int startY = static_cast<int>(std::floor(camera.y / static_cast<float>(tileSize_))) - 5;
     const int endX = static_cast<int>(std::floor((camera.x + camera.width) / static_cast<float>(tileSize_))) + 4;
@@ -801,6 +841,16 @@ void TileMap::DrawShadows(SDL_Renderer* renderer, const Camera2D& camera, int cu
                 continue;
             }
 
+            if (IsSoftGroundProp(prop) &&
+                OverlapsClearedGround(
+                    static_cast<float>(x * tileSize_),
+                    static_cast<float>(y * tileSize_),
+                    tile * 2.0f,
+                    tile * 2.0f,
+                    clearedGround)) {
+                continue;
+            }
+
             const float drawX = static_cast<float>(x * tileSize_) - camera.x;
             const float drawY = static_cast<float>(y * tileSize_) - camera.y;
             DrawPropShadow(renderer, drawX, drawY + tile, tile, prop);
@@ -808,7 +858,13 @@ void TileMap::DrawShadows(SDL_Renderer* renderer, const Camera2D& camera, int cu
     }
 }
 
-void TileMap::DrawProps(SDL_Renderer* renderer, const Camera2D& camera, float splitWorldY, bool drawBeforePlayer, int currentLayer) const {
+void TileMap::DrawProps(
+    SDL_Renderer* renderer,
+    const Camera2D& camera,
+    float splitWorldY,
+    bool drawBeforePlayer,
+    int currentLayer,
+    const std::vector<SDL_FRect>* clearedGround) const {
     const int startX = static_cast<int>(std::floor(camera.x / static_cast<float>(tileSize_))) - 2;
     const int startY = static_cast<int>(std::floor(camera.y / static_cast<float>(tileSize_))) - 4;
     const int endX = static_cast<int>(std::floor((camera.x + camera.width) / static_cast<float>(tileSize_))) + 3;
@@ -839,6 +895,16 @@ void TileMap::DrawProps(SDL_Renderer* renderer, const Camera2D& camera, float sp
                 prop = PropType::None;
             }
             if (prop == PropType::None) {
+                continue;
+            }
+
+            if (IsSoftGroundProp(prop) &&
+                OverlapsClearedGround(
+                    static_cast<float>(x * tileSize_),
+                    static_cast<float>(y * tileSize_),
+                    tile * 2.0f,
+                    tile * 2.0f,
+                    clearedGround)) {
                 continue;
             }
 

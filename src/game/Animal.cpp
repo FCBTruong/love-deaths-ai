@@ -36,6 +36,18 @@ Animal::Animal(float x, float y, AnimalKind kind, std::uint32_t seed)
         width_ = 13.0f;
         height_ = 9.0f;
         speed_ = 26.0f;
+    } else if (kind_ == AnimalKind::Deer) {
+        width_ = 12.0f;
+        height_ = 10.0f;
+        speed_ = 35.0f;
+    } else if (kind_ == AnimalKind::Wolf) {
+        width_ = 13.0f;
+        height_ = 8.0f;
+        speed_ = 37.0f;
+    } else if (kind_ == AnimalKind::Chicken) {
+        width_ = 7.0f;
+        height_ = 6.0f;
+        speed_ = 31.0f;
     } else {
         width_ = 8.0f;
         height_ = 5.0f;
@@ -189,6 +201,47 @@ void Animal::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
         SDL_SetRenderDrawColor(renderer, 121, 82, 64, 255);
         SDL_FRect nose{screenX + (facingX_ >= 0.0f ? width_ - 1.0f : -1.0f), screenY + 4.0f, 2.0f, 2.0f};
         SDL_RenderFillRect(renderer, &nose);
+    } else if (kind_ == AnimalKind::Deer) {
+        SDL_SetRenderDrawColor(renderer, 189, 142, 96, 255);
+        SDL_FRect body{screenX + 1.0f, screenY + 2.0f, width_ - 2.0f, height_ - 2.0f};
+        SDL_RenderFillRect(renderer, &body);
+
+        SDL_SetRenderDrawColor(renderer, 226, 209, 191, 255);
+        SDL_FRect belly{screenX + 3.0f, screenY + 5.0f, width_ - 6.0f, 2.0f};
+        SDL_RenderFillRect(renderer, &belly);
+
+        SDL_SetRenderDrawColor(renderer, 132, 92, 72, 255);
+        const float antlerX = facingX_ >= 0.0f ? screenX + width_ - 4.0f : screenX + 2.0f;
+        SDL_FRect antlerStem{antlerX, screenY - 1.0f, 1.0f, 3.0f};
+        SDL_FRect antlerBranch{antlerX - 1.0f, screenY, 3.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &antlerStem);
+        SDL_RenderFillRect(renderer, &antlerBranch);
+    } else if (kind_ == AnimalKind::Wolf) {
+        SDL_SetRenderDrawColor(renderer, 122, 130, 144, 255);
+        SDL_FRect body{screenX + 1.0f, screenY + 2.0f, width_ - 3.0f, height_ - 2.0f};
+        SDL_RenderFillRect(renderer, &body);
+
+        SDL_SetRenderDrawColor(renderer, 214, 221, 228, 255);
+        SDL_FRect chest{screenX + 2.0f, screenY + 4.0f, width_ - 7.0f, 2.0f};
+        SDL_RenderFillRect(renderer, &chest);
+
+        SDL_SetRenderDrawColor(renderer, 88, 96, 112, 255);
+        SDL_FRect tail{screenX + (facingX_ >= 0.0f ? -2.0f : width_ - 1.0f), screenY + 3.0f, 3.0f, 1.0f};
+        SDL_FRect ear{screenX + (facingX_ >= 0.0f ? width_ - 4.0f : 2.0f), screenY + 1.0f, 2.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &tail);
+        SDL_RenderFillRect(renderer, &ear);
+    } else if (kind_ == AnimalKind::Chicken) {
+        SDL_SetRenderDrawColor(renderer, 244, 242, 233, 255);
+        SDL_FRect body{screenX + 1.0f, screenY + 2.0f, width_ - 2.0f, height_ - 2.0f};
+        SDL_RenderFillRect(renderer, &body);
+
+        SDL_SetRenderDrawColor(renderer, 224, 71, 66, 255);
+        SDL_FRect comb{screenX + (facingX_ >= 0.0f ? width_ - 3.0f : 2.0f), screenY + 1.0f, 2.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &comb);
+
+        SDL_SetRenderDrawColor(renderer, 242, 194, 76, 255);
+        SDL_FRect beak{screenX + (facingX_ >= 0.0f ? width_ - 1.0f : -1.0f), screenY + 3.0f, 1.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &beak);
     } else {
         const float swimWiggle = moving_ ? ((static_cast<int>(animTime_ * 2.0f) % 2 == 0) ? 1.0f : -1.0f) : 0.0f;
         const float leapStretch = jumpOffset > 0.0f ? 1.0f : 0.0f;

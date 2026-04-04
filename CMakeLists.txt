@@ -20,6 +20,8 @@ add_executable(My2DGame
     src/core/App.cpp
     src/core/Camera2D.cpp
     src/game/Animal.cpp
+    src/game/HostileAI.cpp
+    src/game/NpcAI.cpp
     src/game/Player.cpp
     src/game/TileMap.cpp
 )
