@@ -14,6 +14,7 @@ Player::Player()
             moving_(false),
             facingX_(1.0f),
             facingDirection_(FacingDirection::Down),
+            toolVisual_(ToolVisual::Blade),
             jumpTimer_(0.0f),
             jumping_(false),
             attackTimer_(0.0f),
@@ -24,6 +25,10 @@ Player::Player()
 void Player::SetPosition(float x, float y) {
     x_ = x;
     y_ = y;
+}
+
+void Player::SetToolVisual(ToolVisual toolVisual) {
+    toolVisual_ = toolVisual;
 }
 
 void Player::TriggerJump() {
@@ -189,6 +194,85 @@ void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
     const float legShift = (frame % 2 == 0) ? 1.0f : -1.0f;
     const float renderY = screenY + bobY - jumpOffsetY;
 
+    const auto drawHeldToolSide = [&](float handX, float handY) {
+        if (toolVisual_ == ToolVisual::Blade) {
+            SDL_SetRenderDrawColor(renderer, 98, 63, 45, 255);
+            SDL_FRect handle{(facingX_ >= 0.0f) ? handX : (handX - 2.0f), handY, 2.0f, 1.0f};
+            SDL_RenderFillRect(renderer, &handle);
+
+            SDL_SetRenderDrawColor(renderer, 195, 205, 218, 255);
+            SDL_FRect bladeIdle{(facingX_ >= 0.0f) ? (handX + 2.0f) : (handX - 4.0f), handY, 2.0f, 1.0f};
+            SDL_RenderFillRect(renderer, &bladeIdle);
+        } else if (toolVisual_ == ToolVisual::Fence) {
+            SDL_SetRenderDrawColor(renderer, 129, 92, 58, 255);
+            SDL_FRect post{(facingX_ >= 0.0f) ? handX : (handX - 2.0f), handY - 1.0f, 2.0f, 5.0f};
+            SDL_RenderFillRect(renderer, &post);
+            SDL_SetRenderDrawColor(renderer, 171, 129, 82, 255);
+            SDL_FRect rail{(facingX_ >= 0.0f) ? (handX + 1.0f) : (handX - 4.0f), handY, 3.0f, 1.0f};
+            SDL_RenderFillRect(renderer, &rail);
+        } else if (toolVisual_ == ToolVisual::Soil) {
+            SDL_SetRenderDrawColor(renderer, 148, 106, 64, 255);
+            SDL_FRect bag{(facingX_ >= 0.0f) ? handX : (handX - 3.0f), handY - 1.0f, 3.0f, 3.0f};
+            SDL_RenderFillRect(renderer, &bag);
+            SDL_SetRenderDrawColor(renderer, 91, 63, 38, 255);
+            SDL_FRect dirt{(facingX_ >= 0.0f) ? (handX + 1.0f) : (handX - 1.0f), handY + 2.0f, 2.0f, 1.0f};
+            SDL_RenderFillRect(renderer, &dirt);
+        } else if (toolVisual_ == ToolVisual::Seed) {
+            SDL_SetRenderDrawColor(renderer, 198, 171, 96, 255);
+            SDL_FRect pouch{(facingX_ >= 0.0f) ? handX : (handX - 2.0f), handY - 1.0f, 2.0f, 3.0f};
+            SDL_RenderFillRect(renderer, &pouch);
+            SDL_SetRenderDrawColor(renderer, 124, 92, 43, 255);
+            SDL_FRect seed{(facingX_ >= 0.0f) ? (handX + 2.0f) : (handX - 2.0f), handY + 1.0f, 1.0f, 1.0f};
+            SDL_RenderFillRect(renderer, &seed);
+        } else if (toolVisual_ == ToolVisual::Rod) {
+            SDL_SetRenderDrawColor(renderer, 125, 87, 52, 255);
+            SDL_FRect rod{(facingX_ >= 0.0f) ? handX : (handX - 6.0f), handY - 2.0f, 6.0f, 1.0f};
+            SDL_RenderFillRect(renderer, &rod);
+            SDL_SetRenderDrawColor(renderer, 226, 230, 235, 255);
+            SDL_FRect line{(facingX_ >= 0.0f) ? (handX + 5.0f) : (handX - 1.0f), handY - 1.0f, 1.0f, 3.0f};
+            SDL_RenderFillRect(renderer, &line);
+        }
+    };
+
+    const auto drawHeldToolVertical = [&](float handX, float handY, bool upside) {
+        if (toolVisual_ == ToolVisual::Blade) {
+            SDL_SetRenderDrawColor(renderer, 98, 63, 45, 255);
+            SDL_FRect handle{handX, handY, 1.0f, 3.0f};
+            SDL_RenderFillRect(renderer, &handle);
+            SDL_SetRenderDrawColor(renderer, 195, 205, 218, 255);
+            SDL_FRect bladeIdle{handX, upside ? (handY - 3.0f) : (handY + 3.0f), 1.0f, 3.0f};
+            SDL_RenderFillRect(renderer, &bladeIdle);
+        } else if (toolVisual_ == ToolVisual::Fence) {
+            SDL_SetRenderDrawColor(renderer, 129, 92, 58, 255);
+            SDL_FRect post{handX, handY - 1.0f, 2.0f, 5.0f};
+            SDL_RenderFillRect(renderer, &post);
+            SDL_SetRenderDrawColor(renderer, 171, 129, 82, 255);
+            SDL_FRect rail{handX - 1.0f, handY + 1.0f, 4.0f, 1.0f};
+            SDL_RenderFillRect(renderer, &rail);
+        } else if (toolVisual_ == ToolVisual::Soil) {
+            SDL_SetRenderDrawColor(renderer, 148, 106, 64, 255);
+            SDL_FRect bag{handX - 1.0f, handY - 1.0f, 3.0f, 3.0f};
+            SDL_RenderFillRect(renderer, &bag);
+            SDL_SetRenderDrawColor(renderer, 91, 63, 38, 255);
+            SDL_FRect dirt{handX, handY + 2.0f, 1.0f, 1.0f};
+            SDL_RenderFillRect(renderer, &dirt);
+        } else if (toolVisual_ == ToolVisual::Seed) {
+            SDL_SetRenderDrawColor(renderer, 198, 171, 96, 255);
+            SDL_FRect pouch{handX, handY - 1.0f, 2.0f, 3.0f};
+            SDL_RenderFillRect(renderer, &pouch);
+            SDL_SetRenderDrawColor(renderer, 124, 92, 43, 255);
+            SDL_FRect seed{handX + 1.0f, handY + 2.0f, 1.0f, 1.0f};
+            SDL_RenderFillRect(renderer, &seed);
+        } else if (toolVisual_ == ToolVisual::Rod) {
+            SDL_SetRenderDrawColor(renderer, 125, 87, 52, 255);
+            SDL_FRect rod{handX, upside ? (handY - 5.0f) : handY, 1.0f, 6.0f};
+            SDL_RenderFillRect(renderer, &rod);
+            SDL_SetRenderDrawColor(renderer, 226, 230, 235, 255);
+            SDL_FRect line{handX + 1.0f, upside ? (handY - 6.0f) : (handY + 6.0f), 1.0f, 2.0f};
+            SDL_RenderFillRect(renderer, &line);
+        }
+    };
+
     if (facingUp) {
         SDL_SetRenderDrawColor(renderer, 22, 35, 106, 255);
         SDL_FRect legL{screenX + 3.0f + (legShift * 0.5f), renderY + 11.0f, 2.0f, 3.0f};
@@ -217,14 +301,9 @@ void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
         SDL_RenderFillRect(renderer, &shoulders);
 
         const float handY = renderY + 8.0f + idleHandBob;
-        SDL_SetRenderDrawColor(renderer, 98, 63, 45, 255);
-        SDL_FRect handle{screenX + 8.0f, handY, 1.0f, 3.0f};
-        SDL_RenderFillRect(renderer, &handle);
-        SDL_SetRenderDrawColor(renderer, 195, 205, 218, 255);
-        SDL_FRect bladeIdle{screenX + 8.0f, handY - 3.0f, 1.0f, 3.0f};
-        SDL_RenderFillRect(renderer, &bladeIdle);
+        drawHeldToolVertical(screenX + 8.0f, handY, true);
 
-        if (attacking_) {
+        if (attacking_ && toolVisual_ == ToolVisual::Blade) {
             const float t = attackTimer_ / kAttackDuration;
             const float swing = std::sin(t * 3.14159265f);
             const float reach = 4.0f + std::floor(swing * 4.0f);
@@ -265,14 +344,9 @@ void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
         }
 
         const float handY = renderY + 8.0f + idleHandBob;
-        SDL_SetRenderDrawColor(renderer, 98, 63, 45, 255);
-        SDL_FRect handle{screenX + 9.0f, handY, 1.0f, 3.0f};
-        SDL_RenderFillRect(renderer, &handle);
-        SDL_SetRenderDrawColor(renderer, 195, 205, 218, 255);
-        SDL_FRect bladeIdle{screenX + 9.0f, handY + 3.0f, 1.0f, 3.0f};
-        SDL_RenderFillRect(renderer, &bladeIdle);
+        drawHeldToolVertical(screenX + 9.0f, handY, false);
 
-        if (attacking_) {
+        if (attacking_ && toolVisual_ == ToolVisual::Blade) {
             const float t = attackTimer_ / kAttackDuration;
             const float swing = std::sin(t * 3.14159265f);
             const float reach = 4.0f + std::floor(swing * 4.0f);
@@ -311,15 +385,9 @@ void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
 
         const float handX = (facingX_ >= 0.0f) ? (screenX + 10.0f) : (screenX + 1.0f);
         const float handY = renderY + 8.0f + idleHandBob;
-        SDL_SetRenderDrawColor(renderer, 98, 63, 45, 255);
-        SDL_FRect handle{(facingX_ >= 0.0f) ? handX : (handX - 2.0f), handY, 2.0f, 1.0f};
-        SDL_RenderFillRect(renderer, &handle);
+        drawHeldToolSide(handX, handY);
 
-        SDL_SetRenderDrawColor(renderer, 195, 205, 218, 255);
-        SDL_FRect bladeIdle{(facingX_ >= 0.0f) ? (handX + 2.0f) : (handX - 4.0f), handY, 2.0f, 1.0f};
-        SDL_RenderFillRect(renderer, &bladeIdle);
-
-        if (attacking_) {
+        if (attacking_ && toolVisual_ == ToolVisual::Blade) {
             const float t = attackTimer_ / kAttackDuration;
             const float swing = std::sin(t * 3.14159265f);
             const float reach = 5.0f + std::floor(swing * 5.0f);

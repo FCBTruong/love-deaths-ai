@@ -41,6 +41,8 @@ NpcAI::NpcAI(
       focus_(std::move(focus)),
       x_(x),
       y_(y),
+      homeX_(x),
+      homeY_(y),
       width_(12.0f),
       height_(14.0f),
       speed_(28.0f),
@@ -56,6 +58,9 @@ NpcAI::NpcAI(
       bubbleTimer_(0.0f),
       bubbleText_(),
       health_(5),
+      commandMode_(CommandMode::Wander),
+      holdX_(x),
+      holdY_(y),
       rng_(seed) {
     PickNewBehavior();
 }
@@ -120,6 +125,48 @@ void NpcAI::Update(float dt, const TileMap& map, float playerX, float playerY) {
         ++thoughtIndex_;
         if (IsPlayerNear(playerX, playerY)) {
             SetBubble(BuildThoughtText(), 2.4f);
+        }
+    }
+
+    if (commandMode_ != CommandMode::Wander) {
+        float targetX = x_;
+        float targetY = y_;
+        float stopDistance = 8.0f;
+
+        if (commandMode_ == CommandMode::FollowPlayer) {
+            targetX = playerX - (facingX_ >= 0.0f ? 10.0f : -10.0f);
+            targetY = playerY - 6.0f;
+            stopDistance = 16.0f;
+        } else if (commandMode_ == CommandMode::HoldPosition) {
+            targetX = holdX_;
+            targetY = holdY_;
+            stopDistance = 4.0f;
+        } else if (commandMode_ == CommandMode::ReturnHome) {
+            targetX = homeX_;
+            targetY = homeY_;
+            stopDistance = 6.0f;
+        }
+
+        const float toTargetX = targetX - CenterX();
+        const float toTargetY = targetY - FeetY();
+        const float distanceSq = (toTargetX * toTargetX) + (toTargetY * toTargetY);
+        if (distanceSq <= (stopDistance * stopDistance)) {
+            moving_ = false;
+            animTime_ = 0.0f;
+            if (commandMode_ == CommandMode::ReturnHome) {
+                commandMode_ = CommandMode::Wander;
+                behaviorTimer_ = 0.0f;
+            }
+            return;
+        }
+
+        const float distance = std::sqrt(distanceSq);
+        dirX_ = toTargetX / std::max(distance, 0.001f);
+        dirY_ = toTargetY / std::max(distance, 0.001f);
+        moving_ = true;
+        behaviorTimer_ = 0.15f;
+        if (std::fabs(dirX_) > 0.08f) {
+            facingX_ = dirX_;
         }
     }
 
@@ -229,6 +276,101 @@ std::string NpcAI::RespondToMessage(const std::string& message, int appleCount, 
     ++talkIndex_;
     SetBubble(reply, 5.0f);
     return reply;
+}
+
+std::string NpcAI::ApplyPlayerCommand(const std::string& message, float playerX, float playerY) {
+    if (!IsAlive()) {
+        return name_ + " CANNOT FOLLOW ANY ORDER NOW.";
+    }
+
+    const std::string upper = ToUpperCopy(message);
+
+    if (ContainsWord(upper, "FOLLOW") || ContainsWord(upper, "THEO")) {
+        commandMode_ = CommandMode::FollowPlayer;
+        SetBubble("I WILL FOLLOW YOU.", 3.0f);
+        return name_ + " IS FOLLOWING YOU.";
+    }
+
+    if (ContainsWord(upper, "STOP") || ContainsWord(upper, "STAY") || ContainsWord(upper, "DUNG") ||
+        ContainsWord(upper, "GIU") || ContainsWord(upper, "HERE") || ContainsWord(upper, "DAY")) {
+        commandMode_ = CommandMode::HoldPosition;
+        holdX_ = CenterX();
+        holdY_ = FeetY();
+        SetBubble("I WILL HOLD THIS GROUND.", 3.0f);
+        return name_ + " IS HOLDING POSITION.";
+    }
+
+    if (ContainsWord(upper, "COME") || ContainsWord(upper, "LAI") || ContainsWord(upper, "NEAR") ||
+        ContainsWord(upper, "GAN")) {
+        commandMode_ = CommandMode::HoldPosition;
+        holdX_ = playerX;
+        holdY_ = playerY;
+        SetBubble("MOVING TO YOU.", 3.0f);
+        return name_ + " IS MOVING TO YOUR POSITION.";
+    }
+
+    if (ContainsWord(upper, "HOME") || ContainsWord(upper, "RETURN") || ContainsWord(upper, "BACK") ||
+        ContainsWord(upper, "VE")) {
+        commandMode_ = CommandMode::ReturnHome;
+        SetBubble("I AM RETURNING HOME.", 3.0f);
+        return name_ + " IS RETURNING HOME.";
+    }
+
+    return name_ + " HEARD YOU, BUT THE ORDER IS UNCLEAR.";
+}
+
+std::string NpcAI::ApplyAiDirective(const std::string& intent, const std::string& speech, float playerX, float playerY) {
+    if (!IsAlive()) {
+        return name_ + " CANNOT FOLLOW ANY ORDER NOW.";
+    }
+
+    const std::string upperIntent = ToUpperCopy(intent);
+    const std::string spoken = speech.empty() ? (name_ + " IS THINKING.") : speech;
+
+    if (ContainsWord(upperIntent, "FOLLOW")) {
+        commandMode_ = CommandMode::FollowPlayer;
+        SetBubble(spoken, 4.2f);
+        return spoken;
+    }
+
+    if (ContainsWord(upperIntent, "HOLD") || ContainsWord(upperIntent, "STAY")) {
+        commandMode_ = CommandMode::HoldPosition;
+        holdX_ = CenterX();
+        holdY_ = FeetY();
+        SetBubble(spoken, 4.2f);
+        return spoken;
+    }
+
+    if (ContainsWord(upperIntent, "COME")) {
+        commandMode_ = CommandMode::HoldPosition;
+        holdX_ = playerX;
+        holdY_ = playerY;
+        SetBubble(spoken, 4.2f);
+        return spoken;
+    }
+
+    if (ContainsWord(upperIntent, "RETURN") || ContainsWord(upperIntent, "HOME")) {
+        commandMode_ = CommandMode::ReturnHome;
+        SetBubble(spoken, 4.2f);
+        return spoken;
+    }
+
+    if (ContainsWord(upperIntent, "WANDER")) {
+        commandMode_ = CommandMode::Wander;
+        behaviorTimer_ = 0.0f;
+        SetBubble(spoken, 4.2f);
+        return spoken;
+    }
+
+    SetBubble(spoken, 4.2f);
+    return spoken;
+}
+
+void NpcAI::SetAiSpeech(const std::string& speech) {
+    if (speech.empty()) {
+        return;
+    }
+    SetBubble(speech, 4.2f);
 }
 
 void NpcAI::ApplyDamage(int amount) {
@@ -343,4 +485,17 @@ float NpcAI::FeetY() const {
 
 int NpcAI::Health() const {
     return health_;
+}
+
+bool NpcAI::MatchesName(const std::string& messageUpper) const {
+    const std::string upperName = ToUpperCopy(name_);
+    if (messageUpper.find(upperName) != std::string::npos) {
+        return true;
+    }
+
+    if (name_ == "MARA" && messageUpper.find("CLARE") != std::string::npos) {
+        return true;
+    }
+
+    return false;
 }

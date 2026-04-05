@@ -1,10 +1,13 @@
 #include "core/App.h"
 
+#include "ai/NpcChatSystem.h"
+#include "core/HudRenderer.h"
+#include "core/PixelFont.h"
+
 #include <algorithm>
-#include <array>
-#include <cctype>
 #include <cstdint>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <random>
 #include <vector>
@@ -15,6 +18,11 @@
 #endif
 #include <windows.h>
 #endif
+
+using pixel_font::DrawNumber;
+using pixel_font::DrawBitmapText;
+using pixel_font::MeasureText;
+using pixel_font::WrapText;
 
 namespace {
 float ComputeRenderScale(SDL_Window* window, int virtualWidth, int virtualHeight) {
@@ -29,213 +37,50 @@ float ComputeRenderScale(SDL_Window* window, int virtualWidth, int virtualHeight
     return std::max(scale, 1.0f);
 }
 
-void DrawDigit(SDL_Renderer* renderer, int digit, float x, float y, float s, SDL_Color color) {
-    static const int kMasks[10] = {
-        0b111101101101111,
-        0b010010010010010,
-        0b111001111100111,
-        0b111001111001111,
-        0b101101111001001,
-        0b111100111001111,
-        0b111100111101111,
-        0b111001001001001,
-        0b111101111101111,
-        0b111101111001111
-    };
-
-    const int mask = kMasks[std::clamp(digit, 0, 9)];
-    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
-
-    for (int row = 0; row < 5; ++row) {
-        for (int col = 0; col < 3; ++col) {
-            const int bit = 14 - ((row * 3) + col);
-            if (((mask >> bit) & 1) == 0) {
-                continue;
-            }
-            SDL_FRect p{x + (static_cast<float>(col) * s), y + (static_cast<float>(row) * s), s, s};
-            SDL_RenderFillRect(renderer, &p);
-        }
-    }
-}
-
-void DrawNumber(SDL_Renderer* renderer, int value, float x, float y, float s, SDL_Color color) {
-    const int safeValue = std::max(0, value);
-    if (safeValue < 10) {
-        DrawDigit(renderer, safeValue, x, y, s, color);
-        return;
-    }
-
-    const int tens = (safeValue / 10) % 10;
-    const int ones = safeValue % 10;
-    DrawDigit(renderer, tens, x, y, s, color);
-    DrawDigit(renderer, ones, x + (4.0f * s), y, s, color);
-}
-
-const std::array<const char*, 5>& GlyphRows(char c) {
-    static const std::array<const char*, 5> space{"000", "000", "000", "000", "000"};
-    static const std::array<const char*, 5> dot{"000", "000", "000", "010", "010"};
-    static const std::array<const char*, 5> dash{"000", "000", "111", "000", "000"};
-    static const std::array<const char*, 5> colon{"000", "010", "000", "010", "000"};
-    static const std::array<const char*, 5> bang{"010", "010", "010", "000", "010"};
-    static const std::array<const char*, 5> apos{"010", "010", "000", "000", "000"};
-
-    static const std::array<const char*, 5> a{"010", "101", "111", "101", "101"};
-    static const std::array<const char*, 5> b{"110", "101", "110", "101", "110"};
-    static const std::array<const char*, 5> c0{"011", "100", "100", "100", "011"};
-    static const std::array<const char*, 5> d{"110", "101", "101", "101", "110"};
-    static const std::array<const char*, 5> e{"111", "100", "110", "100", "111"};
-    static const std::array<const char*, 5> f{"111", "100", "110", "100", "100"};
-    static const std::array<const char*, 5> g{"011", "100", "101", "101", "011"};
-    static const std::array<const char*, 5> h{"101", "101", "111", "101", "101"};
-    static const std::array<const char*, 5> i{"111", "010", "010", "010", "111"};
-    static const std::array<const char*, 5> j{"001", "001", "001", "101", "010"};
-    static const std::array<const char*, 5> k{"101", "101", "110", "101", "101"};
-    static const std::array<const char*, 5> l{"100", "100", "100", "100", "111"};
-    static const std::array<const char*, 5> m{"101", "111", "111", "101", "101"};
-    static const std::array<const char*, 5> n{"101", "111", "111", "111", "101"};
-    static const std::array<const char*, 5> o{"111", "101", "101", "101", "111"};
-    static const std::array<const char*, 5> p{"110", "101", "110", "100", "100"};
-    static const std::array<const char*, 5> q{"111", "101", "101", "111", "001"};
-    static const std::array<const char*, 5> r{"110", "101", "110", "101", "101"};
-    static const std::array<const char*, 5> s{"011", "100", "111", "001", "110"};
-    static const std::array<const char*, 5> t{"111", "010", "010", "010", "010"};
-    static const std::array<const char*, 5> u{"101", "101", "101", "101", "111"};
-    static const std::array<const char*, 5> v{"101", "101", "101", "101", "010"};
-    static const std::array<const char*, 5> w{"101", "101", "111", "111", "101"};
-    static const std::array<const char*, 5> x{"101", "101", "010", "101", "101"};
-    static const std::array<const char*, 5> y{"101", "101", "010", "010", "010"};
-    static const std::array<const char*, 5> z{"111", "001", "010", "100", "111"};
-
-    static const std::array<const char*, 5> n0{"111", "101", "101", "101", "111"};
-    static const std::array<const char*, 5> n1{"010", "110", "010", "010", "111"};
-    static const std::array<const char*, 5> n2{"111", "001", "111", "100", "111"};
-    static const std::array<const char*, 5> n3{"111", "001", "111", "001", "111"};
-    static const std::array<const char*, 5> n4{"101", "101", "111", "001", "001"};
-    static const std::array<const char*, 5> n5{"111", "100", "111", "001", "111"};
-    static const std::array<const char*, 5> n6{"111", "100", "111", "101", "111"};
-    static const std::array<const char*, 5> n7{"111", "001", "010", "100", "100"};
-    static const std::array<const char*, 5> n8{"111", "101", "111", "101", "111"};
-    static const std::array<const char*, 5> n9{"111", "101", "111", "001", "111"};
-
-    switch (std::toupper(static_cast<unsigned char>(c))) {
-        case 'A': return a;
-        case 'B': return b;
-        case 'C': return c0;
-        case 'D': return d;
-        case 'E': return e;
-        case 'F': return f;
-        case 'G': return g;
-        case 'H': return h;
-        case 'I': return i;
-        case 'J': return j;
-        case 'K': return k;
-        case 'L': return l;
-        case 'M': return m;
-        case 'N': return n;
-        case 'O': return o;
-        case 'P': return p;
-        case 'Q': return q;
-        case 'R': return r;
-        case 'S': return s;
-        case 'T': return t;
-        case 'U': return u;
-        case 'V': return v;
-        case 'W': return w;
-        case 'X': return x;
-        case 'Y': return y;
-        case 'Z': return z;
-        case '0': return n0;
-        case '1': return n1;
-        case '2': return n2;
-        case '3': return n3;
-        case '4': return n4;
-        case '5': return n5;
-        case '6': return n6;
-        case '7': return n7;
-        case '8': return n8;
-        case '9': return n9;
-        case '.': return dot;
-        case '-': return dash;
-        case ':': return colon;
-        case '!': return bang;
-        case '\'': return apos;
-        default: return space;
-    }
-}
-
-float MeasureText(const std::string& text, float scale) {
-    if (text.empty()) {
-        return 0.0f;
-    }
-    return static_cast<float>(text.size()) * (4.0f * scale) - scale;
-}
-
-void DrawText(SDL_Renderer* renderer, const std::string& text, float x, float y, float scale, SDL_Color color) {
-    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
-    float cursorX = x;
-
-    for (char c : text) {
-        const auto& rows = GlyphRows(c);
-        for (int row = 0; row < 5; ++row) {
-            for (int col = 0; col < 3; ++col) {
-                if (rows[row][col] != '1') {
-                    continue;
-                }
-                SDL_FRect px{
-                    cursorX + (static_cast<float>(col) * scale),
-                    y + (static_cast<float>(row) * scale),
-                    scale,
-                    scale
-                };
-                SDL_RenderFillRect(renderer, &px);
-            }
-        }
-        cursorX += 4.0f * scale;
-    }
-}
-
-std::vector<std::string> WrapText(const std::string& text, std::size_t maxChars) {
-    std::vector<std::string> lines;
-    std::string current;
-    std::string word;
-
-    auto flushWord = [&]() {
-        if (word.empty()) {
-            return;
-        }
-        if (current.empty()) {
-            current = word;
-        } else if ((current.size() + 1U + word.size()) <= maxChars) {
-            current += " " + word;
-        } else {
-            lines.push_back(current);
-            current = word;
-        }
-        word.clear();
-    };
-
-    for (char c : text) {
-        if (c == ' ') {
-            flushWord();
-        } else {
-            word.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
-        }
-    }
-    flushWord();
-    if (!current.empty()) {
-        lines.push_back(current);
-    }
-    if (lines.empty()) {
-        lines.push_back("");
-    }
-    return lines;
-}
-
 std::string FormatSignedInt(int value) {
     if (value >= 0) {
         return std::to_string(value);
     }
     return "-" + std::to_string(-value);
+}
+
+AiRuntimeManager::Config BuildDefaultAiConfig() {
+    namespace fs = std::filesystem;
+
+    std::vector<fs::path> roots;
+    if (const char* basePathRaw = SDL_GetBasePath(); basePathRaw != nullptr) {
+        const fs::path exeDir(basePathRaw);
+        roots.push_back(exeDir);
+        roots.push_back(exeDir.parent_path());
+        roots.push_back(exeDir.parent_path().parent_path());
+    }
+    roots.push_back(fs::current_path());
+
+    for (const fs::path& root : roots) {
+        const fs::path llamaServerPath = root / "third_party" / "llama-bin" / "llama-server.exe";
+        const fs::path modelPath = root / "models" / "npc-brain.gguf";
+        if (!fs::exists(llamaServerPath) || !fs::exists(modelPath)) {
+            continue;
+        }
+
+        return AiRuntimeManager::Config{
+            AiRuntimeManager::Backend::LlamaServer,
+            fs::absolute(llamaServerPath).string(),
+            std::string(),
+            fs::absolute(modelPath).string(),
+            "http://127.0.0.1:8080",
+            8080,
+            true};
+    }
+
+    return AiRuntimeManager::Config{
+        AiRuntimeManager::Backend::Ollama,
+        std::string(),
+        "gemma3:4b",
+        std::string(),
+        "http://127.0.0.1:11434",
+        11434,
+        true};
 }
 }
 
@@ -250,6 +95,7 @@ App::App()
     cameraOffsetX_(0.0f),
     cameraOffsetY_(0.0f),
     draggingCamera_(false),
+    recenteringCamera_(false),
     lastMouseX_(0),
     lastMouseY_(0),
     interactPressedLast_(false),
@@ -260,14 +106,19 @@ App::App()
     slot2PressedLast_(false),
     slot3PressedLast_(false),
     slot4PressedLast_(false),
+    slot5PressedLast_(false),
+    enterPressedLast_(false),
+    suppressEnterOpen_(false),
     undoPressedLast_(false),
     fenceVerticalPlacement_(false),
     layerUpPressedLast_(false),
     layerDownPressedLast_(false),
     chatMode_(false),
-    statusText_("WASD move | Shift slow walk | 1 weapon | 2 fence | 3 soil | 4 seeds | J use | E rotate/talk | Ctrl+Z undo"),
+    statusText_("WASD move | Shift slow walk | 1 weapon | 2 fence | 3 soil | 4 seeds | 5 rod | J use | E rotate/talk | Ctrl+Z undo"),
     chatInput_(),
     chatReply_(),
+    playerChatText_(),
+    playerChatTimer_(0.0f),
     statusTimer_(0.0f),
     currentLayer_(0),
     appleCount_(0),
@@ -284,6 +135,7 @@ App::App()
     npcs_(),
     hostiles_(),
     heldItem_(HeldItem::Weapon),
+    fishingCast_{false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
     nearbyNpcIndex_(-1),
     chatNpcIndex_(-1),
     splashSpawnTimer_(0.0f),
@@ -293,7 +145,10 @@ App::App()
     shakeDuration_(0.0f),
     shakeMagnitude_(0.0f),
     shakeOffsetX_(0.0f),
-    shakeOffsetY_(0.0f) {}
+    shakeOffsetY_(0.0f),
+    aiRuntime_(),
+    aiBackendReady_(false),
+    aiBackendStatus_("AI offline") {}
 
 App::~App() {
     Shutdown();
@@ -424,6 +279,19 @@ bool App::Initialize() {
     camera_.width = static_cast<float>(kVirtualWidth);
     camera_.height = static_cast<float>(kVirtualHeight);
     camera_.SnapToTarget(player_.CenterX(), player_.CenterY());
+
+    aiRuntime_.SetConfig(BuildDefaultAiConfig());
+    aiBackendReady_ = aiRuntime_.Start();
+    if (aiBackendReady_) {
+        aiBackendStatus_ = aiRuntime_.GetConfig().backend == AiRuntimeManager::Backend::LlamaServer ? "LOCAL AI READY" : "OLLAMA AI READY";
+        statusText_ = aiBackendStatus_;
+        statusTimer_ = 2.6f;
+    } else if (aiRuntime_.GetConfig().backend == AiRuntimeManager::Backend::LlamaServer) {
+        aiBackendStatus_ = "AI missing: third_party/llama-server.exe or models/npc-brain.gguf";
+    } else {
+        aiBackendStatus_ = "AI missing: install Ollama or bundle llama-server";
+    }
+
     SDL_SetWindowTitle(window_, statusText_.c_str());
 
     return true;
@@ -449,6 +317,8 @@ int App::Run() {
 }
 
 void App::Shutdown() {
+    aiRuntime_.Stop();
+
     if (fogTexture_) {
         SDL_DestroyTexture(fogTexture_);
         fogTexture_ = nullptr;
@@ -487,13 +357,39 @@ void App::ProcessEvents(bool& running) {
                         chatInput_, appleCount_, berryCount_, pearCount_, meatCount_);
                     statusText_ = chatReply_;
                     statusTimer_ = 3.5f;
+                    chatMode_ = false;
+                    chatNpcIndex_ = -1;
                     chatInput_.clear();
+                    chatReply_.clear();
+                    suppressEnterOpen_ = true;
+                    SDL_StopTextInput(window_);
+                } else if (chatNpcIndex_ < 0 && !chatInput_.empty()) {
+                    playerChatText_ = chatInput_;
+                    playerChatTimer_ = 5.0f;
+                    const npc_chat_system::CommandResult commandResult = npc_chat_system::HandlePlayerChatCommand(
+                        chatInput_, nearbyNpcIndex_, npcs_, player_, hostiles_, aiBackendReady_, aiRuntime_.GetConfig());
+                    chatReply_ = commandResult.chatReply;
+                    statusText_ = commandResult.statusText;
+                    statusTimer_ = commandResult.statusTimer;
+                    chatInput_.clear();
+                    chatMode_ = false;
+                    chatNpcIndex_ = -1;
+                    chatReply_.clear();
+                    suppressEnterOpen_ = true;
+                    SDL_StopTextInput(window_);
+                } else if (chatNpcIndex_ < 0 && chatInput_.empty()) {
+                    chatMode_ = false;
+                    chatNpcIndex_ = -1;
+                    chatReply_.clear();
+                    suppressEnterOpen_ = true;
+                    SDL_StopTextInput(window_);
                 }
             } else if (event.key.key == SDLK_ESCAPE) {
                 chatMode_ = false;
                 chatNpcIndex_ = -1;
                 chatInput_.clear();
                 chatReply_.clear();
+                suppressEnterOpen_ = true;
                 SDL_StopTextInput(window_);
             }
         } else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT) {
@@ -501,12 +397,14 @@ void App::ProcessEvents(bool& running) {
                 continue;
             }
             draggingCamera_ = true;
+            recenteringCamera_ = false;
             lastMouseX_ = event.button.x;
             lastMouseY_ = event.button.y;
         } else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button == SDL_BUTTON_LEFT) {
             draggingCamera_ = false;
             cameraOffsetX_ = 0.0f;
             cameraOffsetY_ = 0.0f;
+            recenteringCamera_ = true;
         } else if (event.type == SDL_EVENT_MOUSE_MOTION && draggingCamera_) {
             const int dx = event.motion.x - lastMouseX_;
             const int dy = event.motion.y - lastMouseY_;
@@ -530,11 +428,13 @@ void App::Update(float dt) {
     const bool slowWalk = !chatMode_ && (keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT]);
     const bool jumpPressed = !chatMode_ && keys[SDL_SCANCODE_SPACE];
     const bool attackPressed = !chatMode_ && keys[SDL_SCANCODE_J];
-    const bool talkPressed = keys[SDL_SCANCODE_E];
+    const bool talkPressed = !chatMode_ && keys[SDL_SCANCODE_E];
     const bool slot1Pressed = !chatMode_ && keys[SDL_SCANCODE_1];
     const bool slot2Pressed = !chatMode_ && keys[SDL_SCANCODE_2];
     const bool slot3Pressed = !chatMode_ && keys[SDL_SCANCODE_3];
     const bool slot4Pressed = !chatMode_ && keys[SDL_SCANCODE_4];
+    const bool slot5Pressed = !chatMode_ && keys[SDL_SCANCODE_5];
+    const bool enterPressed = !chatMode_ && (keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER]);
     const bool undoPressed =
         !chatMode_ &&
         keys[SDL_SCANCODE_Z] &&
@@ -660,6 +560,24 @@ void App::Update(float dt) {
         statusText_ = "Seeds equipped";
         statusTimer_ = 0.8f;
     }
+    if (slot5Pressed && !slot5PressedLast_) {
+        heldItem_ = HeldItem::Rod;
+        statusText_ = "Fishing rod equipped";
+        statusTimer_ = 0.8f;
+    }
+    if (!enterPressed) {
+        suppressEnterOpen_ = false;
+    }
+
+    if (enterPressed && !enterPressedLast_ && !chatMode_ && !suppressEnterOpen_) {
+        chatMode_ = true;
+        chatNpcIndex_ = -1;
+        chatInput_.clear();
+        chatReply_.clear();
+        statusText_ = "Type a message";
+        statusTimer_ = 0.8f;
+        SDL_StartTextInput(window_);
+    }
     if (talkPressed && !talkPressedLast_ && heldItem_ == HeldItem::Fence && !chatMode_) {
         fenceVerticalPlacement_ = !fenceVerticalPlacement_;
         statusText_ = fenceVerticalPlacement_ ? "Fence rotated vertical" : "Fence rotated horizontal";
@@ -682,11 +600,29 @@ void App::Update(float dt) {
         animal.Update(dt, map_);
     }
 
+    playerChatTimer_ = std::max(0.0f, playerChatTimer_ - dt);
+    if (playerChatTimer_ == 0.0f) {
+        playerChatText_.clear();
+    }
+
     for (SoilPlot& plot : soilPlots_) {
         if (!plot.planted) {
             continue;
         }
         plot.growTimer = std::min(plot.growDuration, plot.growTimer + dt);
+    }
+
+    if (fishingCast_.active) {
+        fishingCast_.timer += dt;
+        if (fishingCast_.timer >= fishingCast_.totalTime) {
+            fishingCast_.active = false;
+            harvestFly_.push_back(HarvestFly{HarvestResult::Meat, fishingCast_.worldX, fishingCast_.worldY - 4.0f, 0.0f, 0.6f});
+            statusText_ = "You reeled in a fish";
+            statusTimer_ = 1.4f;
+        } else if (fishingCast_.timer >= fishingCast_.biteTime && statusTimer_ <= 0.0f) {
+            statusText_ = "A fish is biting";
+            statusTimer_ = 0.35f;
+        }
     }
 
     nearbyNpcIndex_ = -1;
@@ -1004,6 +940,53 @@ void App::Update(float dt) {
                 }
             }
             statusTimer_ = 1.0f;
+        } else if (heldItem_ == HeldItem::Rod) {
+            if (fishingCast_.active) {
+                statusText_ = "You are already fishing";
+            } else {
+                const float castX = player_.CenterX() + (player_.FacingX() * 18.0f);
+                const float castY = player_.FeetY() - 3.0f;
+                bool foundWater = false;
+                float waterX = castX;
+                float waterY = castY;
+
+                for (int step = 1; step <= 4; ++step) {
+                    const float sampleX = player_.CenterX() + (player_.FacingX() * (10.0f + (step * 6.0f)));
+                    const float sampleY = player_.FeetY() - 2.0f;
+                    if (map_.IsWaterAt(sampleX, sampleY)) {
+                        foundWater = true;
+                        waterX = sampleX;
+                        waterY = sampleY;
+                        break;
+                    }
+                }
+
+                if (!foundWater && std::fabs(player_.FacingY()) > 0.01f) {
+                    for (int step = 1; step <= 4; ++step) {
+                        const float sampleX = player_.CenterX();
+                        const float sampleY = player_.FeetY() + (player_.FacingY() * (6.0f + (step * 6.0f)));
+                        if (map_.IsWaterAt(sampleX, sampleY)) {
+                            foundWater = true;
+                            waterX = sampleX;
+                            waterY = sampleY;
+                            break;
+                        }
+                    }
+                }
+
+                if (!foundWater) {
+                    statusText_ = "Cast toward the water";
+                } else {
+                    fishingCast_.active = true;
+                    fishingCast_.worldX = waterX;
+                    fishingCast_.worldY = waterY;
+                    fishingCast_.timer = 0.0f;
+                    fishingCast_.biteTime = 1.0f;
+                    fishingCast_.totalTime = 1.8f;
+                    statusText_ = "Line cast";
+                }
+            }
+            statusTimer_ = 1.0f;
         } else {
             player_.TriggerAttack();
 
@@ -1060,6 +1043,8 @@ void App::Update(float dt) {
             float nearestAnimalDistSq = 999999.0f;
             int nearestHostileIndex = -1;
             float nearestHostileDistSq = 999999.0f;
+            int nearestPlayerFenceIndex = -1;
+            float nearestPlayerFenceDistSq = 999999.0f;
             if (currentLayer_ == 0) {
                 for (std::size_t index = 0; index < hostiles_.size(); ++index) {
                     HostileAI& hostile = hostiles_[index];
@@ -1089,6 +1074,25 @@ void App::Update(float dt) {
                     if (distSq < nearestAnimalDistSq) {
                         nearestAnimalDistSq = distSq;
                         nearestAnimalIndex = static_cast<int>(index);
+                    }
+                }
+
+                for (std::size_t index = 0; index < fences_.size(); ++index) {
+                    Fence& fence = fences_[index];
+                    if (fence.health <= 0) {
+                        continue;
+                    }
+                    const float fenceCX = fence.x + (fence.width * 0.5f);
+                    const float fenceCY = fence.y + (fence.height * 0.5f);
+                    const float dx = fenceCX - hitX;
+                    const float dy = fenceCY - hitY;
+                    const float distSq = (dx * dx) + (dy * dy);
+                    if (distSq > 14.0f * 14.0f) {
+                        continue;
+                    }
+                    if (distSq < nearestPlayerFenceDistSq) {
+                        nearestPlayerFenceDistSq = distSq;
+                        nearestPlayerFenceIndex = static_cast<int>(index);
                     }
                 }
             }
@@ -1151,6 +1155,16 @@ void App::Update(float dt) {
                 statusTimer_ = 1.6f;
 
                 animals_.erase(animals_.begin() + nearestAnimalIndex);
+            } else if (nearestPlayerFenceIndex >= 0) {
+                Fence& fence = fences_[static_cast<std::size_t>(nearestPlayerFenceIndex)];
+                hitX = fence.x + (fence.width * 0.5f);
+                hitY = fence.y + (fence.height * 0.5f);
+
+                fence.health -= 2;
+                spawnBurst(hitX, hitY, SDL_Color{129, 92, 58, 255}, SDL_Color{193, 156, 112, 255}, 2.0f);
+                triggerImpactFeedback(0.10f, 2.7f, 690U, 18U);
+                statusText_ = fence.health > 0 ? "You damaged a fence" : "You destroyed a fence";
+                statusTimer_ = 1.1f;
             } else {
 
                 const InteractionResult result = map_.InteractAt(player_.CenterX(), player_.FeetY(), player_.FacingX(), &hitX, &hitY);
@@ -1202,6 +1216,8 @@ void App::Update(float dt) {
     slot2PressedLast_ = slot2Pressed;
     slot3PressedLast_ = slot3Pressed;
     slot4PressedLast_ = slot4Pressed;
+    slot5PressedLast_ = slot5Pressed;
+    enterPressedLast_ = enterPressed;
     undoPressedLast_ = undoPressed;
 
     int newLayer = currentLayer_;
@@ -1222,17 +1238,33 @@ void App::Update(float dt) {
     if (statusTimer_ > 0.0f) {
         statusTimer_ = std::max(0.0f, statusTimer_ - dt);
         if (statusTimer_ == 0.0f) {
-            statusText_ = "WASD move | Shift slow walk | 1 weapon | 2 fence | 3 soil | 4 seeds | J use | E rotate/talk | Ctrl+Z undo";
+            statusText_ = "WASD move | Shift slow walk | 1 weapon | 2 fence | 3 soil | 4 seeds | 5 rod | J use | E rotate/talk | Ctrl+Z undo";
         }
     }
     SDL_SetWindowTitle(window_, statusText_.c_str());
+
+    player_.SetToolVisual(
+        heldItem_ == HeldItem::Weapon ? Player::ToolVisual::Blade :
+        heldItem_ == HeldItem::Fence ? Player::ToolVisual::Fence :
+        heldItem_ == HeldItem::Soil ? Player::ToolVisual::Soil :
+        heldItem_ == HeldItem::Seed ? Player::ToolVisual::Seed :
+                                      Player::ToolVisual::Rod
+    );
 
     const float cameraTargetX = player_.CenterX() + cameraOffsetX_;
     const float cameraTargetY = player_.CenterY() + cameraOffsetY_;
     if (draggingCamera_) {
         camera_.SnapToTarget(cameraTargetX, cameraTargetY);
-    } else {
+    } else if (recenteringCamera_) {
         camera_.LerpToTarget(cameraTargetX, cameraTargetY, 14.0f, dt);
+        const float goalX = cameraTargetX - (camera_.width * 0.5f);
+        const float goalY = cameraTargetY - (camera_.height * 0.5f);
+        if (std::fabs(camera_.x - goalX) < 0.1f && std::fabs(camera_.y - goalY) < 0.1f) {
+            camera_.SnapToTarget(cameraTargetX, cameraTargetY);
+            recenteringCamera_ = false;
+        }
+    } else {
+        camera_.SnapToTarget(cameraTargetX, cameraTargetY);
     }
 }
 
@@ -1323,7 +1355,10 @@ void App::Render() {
     int windowHeight = kWindowHeight;
     SDL_GetWindowSize(window_, &windowWidth, &windowHeight);
 
-    const float scale = ComputeRenderScale(window_, kVirtualWidth, kVirtualHeight);
+    const float scale = std::max(
+        static_cast<float>(windowWidth) / static_cast<float>(kVirtualWidth),
+        static_cast<float>(windowHeight) / static_cast<float>(kVirtualHeight)
+    );
 
     const float drawWidth = static_cast<float>(kVirtualWidth) * scale;
     const float drawHeight = static_cast<float>(kVirtualHeight) * scale;
@@ -1338,9 +1373,17 @@ void App::Render() {
     SDL_RenderTexture(renderer_, frameTexture_, nullptr, &destination);
     DrawFogOfWar(renderCamera, destination);
     DrawHarvestFlyEffects(renderCamera, destination);
-    DrawNpcLocators(renderCamera, destination);
-    DrawNpcBubbles(renderCamera, destination);
-    DrawUI(destination);
+    hud_renderer::DrawNpcLocators(renderer_, renderCamera, destination, npcs_, nearbyNpcIndex_, kVirtualWidth);
+    hud_renderer::DrawNpcBubbles(renderer_, renderCamera, destination, npcs_, kVirtualWidth);
+    hud_renderer::DrawPlayerChatBubble(renderer_, renderCamera, destination, player_, playerChatText_, playerChatTimer_,
+                                       kVirtualWidth);
+    hud_renderer::DrawUI(renderer_, destination, kVirtualWidth, player_, appleCount_, berryCount_, pearCount_, meatCount_,
+                         hostiles_, npcs_, nearbyNpcIndex_, aiBackendReady_, aiBackendStatus_, chatMode_, chatNpcIndex_,
+                         chatReply_, chatInput_,
+                         heldItem_ == HeldItem::Weapon ? "BLADE" :
+                         heldItem_ == HeldItem::Fence ? "FENCE" :
+                         heldItem_ == HeldItem::Soil ? "SOIL" :
+                         heldItem_ == HeldItem::Seed ? "SEED" : "ROD");
     SDL_RenderPresent(renderer_);
 }
 
@@ -1471,6 +1514,21 @@ void App::DrawWorldEffects(const Camera2D& camera) {
         const float screenY = std::floor(b.worldY - camera.y);
         SDL_FRect bit{screenX, screenY, b.size, b.size};
         SDL_RenderFillRect(renderer_, &bit);
+    }
+
+    if (fishingCast_.active) {
+        const float bob = std::sin(fishingCast_.timer * 8.0f) * 0.8f;
+        const float screenX = std::floor(fishingCast_.worldX - camera.x);
+        const float screenY = std::floor((fishingCast_.worldY - camera.y) + bob);
+
+        SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer_, 223, 74, 66, 255);
+        SDL_FRect bobber{screenX - 1.0f, screenY - 1.0f, 3.0f, 3.0f};
+        SDL_RenderFillRect(renderer_, &bobber);
+
+        SDL_SetRenderDrawColor(renderer_, 244, 245, 247, 255);
+        SDL_FRect bobberTop{screenX, screenY - 2.0f, 1.0f, 1.0f};
+        SDL_RenderFillRect(renderer_, &bobberTop);
     }
 
 }
@@ -1862,331 +1920,3 @@ void App::DrawFogOfWar(const Camera2D& camera, const SDL_FRect& destination) {
     SDL_RenderTexture(renderer_, fogTexture_, nullptr, &destination);
 }
 
-void App::DrawNpcBubbles(const Camera2D& camera, const SDL_FRect& destination) {
-    const float scale = std::max(1.0f, std::floor(destination.w / static_cast<float>(kVirtualWidth)));
-
-    for (const NpcAI& npc : npcs_) {
-        if (!npc.HasBubble()) {
-            continue;
-        }
-
-        const std::vector<std::string> lines = WrapText(npc.BubbleText(), 18);
-        float maxWidth = 0.0f;
-        for (const std::string& line : lines) {
-            maxWidth = std::max(maxWidth, MeasureText(line, scale));
-        }
-
-        const float bubbleW = std::max(40.0f * scale, maxWidth + (8.0f * scale));
-        const float bubbleH = (static_cast<float>(lines.size()) * 6.0f * scale) + (6.0f * scale);
-        const float screenX = destination.x + ((npc.CenterX() - camera.x) * scale);
-        const float screenY = destination.y + ((npc.Y() - camera.y) * scale) - (18.0f * scale) - bubbleH;
-
-        SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
-        SDL_SetRenderDrawColor(renderer_, 248, 244, 232, 230);
-        SDL_FRect bubble{screenX - (bubbleW * 0.5f), screenY, bubbleW, bubbleH};
-        SDL_RenderFillRect(renderer_, &bubble);
-
-        SDL_SetRenderDrawColor(renderer_, 60, 52, 46, 255);
-        SDL_FRect edgeTop{bubble.x, bubble.y, bubble.w, 1.0f * scale};
-        SDL_FRect edgeLeft{bubble.x, bubble.y, 1.0f * scale, bubble.h};
-        SDL_RenderFillRect(renderer_, &edgeTop);
-        SDL_RenderFillRect(renderer_, &edgeLeft);
-
-        SDL_FRect tail{screenX - (1.0f * scale), bubble.y + bubble.h, 2.0f * scale, 3.0f * scale};
-        SDL_RenderFillRect(renderer_, &tail);
-
-        for (std::size_t i = 0; i < lines.size(); ++i) {
-            DrawText(
-                renderer_,
-                lines[i],
-                bubble.x + (4.0f * scale),
-                bubble.y + (3.0f * scale) + (static_cast<float>(i) * 6.0f * scale),
-                scale,
-                SDL_Color{36, 34, 30, 255}
-            );
-        }
-    }
-}
-
-void App::DrawNpcLocators(const Camera2D& camera, const SDL_FRect& destination) {
-    const float scale = std::max(1.0f, std::floor(destination.w / static_cast<float>(kVirtualWidth)));
-    const float left = destination.x + (4.0f * scale);
-    const float right = destination.x + destination.w - (4.0f * scale);
-    const float top = destination.y + (4.0f * scale);
-    const float bottom = destination.y + destination.h - (4.0f * scale);
-
-    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
-
-    for (std::size_t index = 0; index < npcs_.size(); ++index) {
-        const NpcAI& npc = npcs_[index];
-        float markerX = destination.x + ((npc.CenterX() - camera.x) * scale);
-        float markerY = destination.y + ((npc.Y() - camera.y) * scale) - (6.0f * scale);
-
-        markerX = std::clamp(markerX, left, right);
-        markerY = std::clamp(markerY, top, bottom);
-
-        const bool nearest = static_cast<int>(index) == nearbyNpcIndex_;
-        SDL_SetRenderDrawColor(renderer_, nearest ? 255 : 244, nearest ? 226 : 193, nearest ? 122 : 96, 245);
-        SDL_FRect pin{markerX - (1.0f * scale), markerY - (1.0f * scale), 3.0f * scale, 3.0f * scale};
-        SDL_RenderFillRect(renderer_, &pin);
-
-        SDL_SetRenderDrawColor(renderer_, 61, 42, 26, 255);
-        SDL_FRect stem{markerX, markerY + (2.0f * scale), 1.0f * scale, 3.0f * scale};
-        SDL_RenderFillRect(renderer_, &stem);
-
-        DrawText(
-            renderer_,
-            npc.Name(),
-            markerX - (MeasureText(npc.Name(), scale) * 0.5f),
-            markerY - (7.0f * scale),
-            scale,
-            nearest ? SDL_Color{255, 244, 212, 255} : SDL_Color{248, 235, 197, 235}
-        );
-    }
-}
-
-void App::DrawUI(const SDL_FRect& destination) {
-    const float scale = std::max(1.0f, std::floor(destination.w / static_cast<float>(kVirtualWidth)));
-
-    {
-        const float hotbarW = 154.0f * scale;
-        const float hotbarH = 16.0f * scale;
-        const float hotbarX = destination.x + ((destination.w - hotbarW) * 0.5f);
-        const float hotbarY = destination.y + destination.h - hotbarH - (6.0f * scale);
-
-        SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
-        SDL_SetRenderDrawColor(renderer_, 16, 20, 26, 222);
-        SDL_FRect hotbar{hotbarX, hotbarY, hotbarW, hotbarH};
-        SDL_RenderFillRect(renderer_, &hotbar);
-
-        const auto drawSlot = [&](float x, const char* key, const char* label, bool active) {
-            SDL_SetRenderDrawColor(renderer_, active ? 206 : 72, active ? 171 : 82, active ? 112 : 94, active ? 255 : 220);
-            SDL_FRect slot{x, hotbarY + (2.0f * scale), 36.0f * scale, 12.0f * scale};
-            SDL_RenderFillRect(renderer_, &slot);
-
-            SDL_SetRenderDrawColor(renderer_, active ? 255 : 136, active ? 239 : 148, active ? 204 : 160, 255);
-            SDL_FRect top{slot.x, slot.y, slot.w, 1.0f * scale};
-            SDL_RenderFillRect(renderer_, &top);
-
-            DrawText(renderer_, key, slot.x + (3.0f * scale), slot.y + (2.0f * scale), scale, SDL_Color{25, 20, 16, 255});
-            DrawText(renderer_, label, slot.x + (10.0f * scale), slot.y + (2.0f * scale), scale, SDL_Color{25, 20, 16, 255});
-        };
-
-        drawSlot(hotbarX + (2.0f * scale), "1", "BLADE", heldItem_ == HeldItem::Weapon);
-        drawSlot(hotbarX + (40.0f * scale), "2", "FENCE", heldItem_ == HeldItem::Fence);
-        drawSlot(hotbarX + (78.0f * scale), "3", "SOIL", heldItem_ == HeldItem::Soil);
-        drawSlot(hotbarX + (116.0f * scale), "4", "SEED", heldItem_ == HeldItem::Seed);
-    }
-
-    {
-        const float bannerW = 118.0f * scale;
-        const float bannerH = 10.0f * scale;
-        const float bannerX = destination.x + ((destination.w - bannerW) * 0.5f);
-        const float bannerY = destination.y + (4.0f * scale);
-
-        SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
-        SDL_SetRenderDrawColor(renderer_, 22, 28, 36, 228);
-        SDL_FRect banner{bannerX, bannerY, bannerW, bannerH};
-        SDL_RenderFillRect(renderer_, &banner);
-
-        SDL_SetRenderDrawColor(renderer_, 234, 198, 118, 255);
-        SDL_FRect top{bannerX, bannerY, bannerW, 1.0f * scale};
-        SDL_RenderFillRect(renderer_, &top);
-
-        DrawText(
-            renderer_,
-            "NPC " + std::to_string(static_cast<int>(npcs_.size())) + "  NEAR " + std::to_string(std::max(0, nearbyNpcIndex_ + 1)),
-            bannerX + (4.0f * scale),
-            bannerY + (2.0f * scale),
-            scale,
-            SDL_Color{248, 240, 223, 255}
-        );
-    }
-
-    const float panelX = destination.x + (6.0f * scale);
-    const float panelY = destination.y + (6.0f * scale);
-    const float panelW = 127.0f * scale;
-    const float panelH = 24.0f * scale;
-
-    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(renderer_, 8, 13, 18, 210);
-    SDL_FRect panel{panelX, panelY, panelW, panelH};
-    SDL_RenderFillRect(renderer_, &panel);
-
-    SDL_SetRenderDrawColor(renderer_, 164, 178, 190, 230);
-    SDL_FRect borderTop{panelX, panelY, panelW, 1.0f * scale};
-    SDL_FRect borderLeft{panelX, panelY, 1.0f * scale, panelH};
-    SDL_RenderFillRect(renderer_, &borderTop);
-    SDL_RenderFillRect(renderer_, &borderLeft);
-
-    const float slotW = 29.0f * scale;
-    const float slotH = 18.0f * scale;
-    const float slotY = panelY + (3.0f * scale);
-
-    const auto drawResourceSlot = [&](int index, SDL_Color iconColor, int count, bool meatIcon) {
-        const float slotX = panelX + (3.0f * scale) + (index * 31.0f * scale);
-        SDL_SetRenderDrawColor(renderer_, 23, 31, 42, 235);
-        SDL_FRect slot{slotX, slotY, slotW, slotH};
-        SDL_RenderFillRect(renderer_, &slot);
-
-        SDL_SetRenderDrawColor(renderer_, iconColor.r, iconColor.g, iconColor.b, 255);
-        if (meatIcon) {
-            SDL_FRect meatCore{slotX + (3.0f * scale), slotY + (5.0f * scale), 5.0f * scale, 4.0f * scale};
-            SDL_RenderFillRect(renderer_, &meatCore);
-            SDL_SetRenderDrawColor(renderer_, 243, 224, 205, 255);
-            SDL_FRect bone{slotX + (8.0f * scale), slotY + (6.0f * scale), 2.0f * scale, 2.0f * scale};
-            SDL_RenderFillRect(renderer_, &bone);
-        } else {
-            SDL_FRect fruit{slotX + (3.0f * scale), slotY + (5.0f * scale), 4.0f * scale, 4.0f * scale};
-            SDL_RenderFillRect(renderer_, &fruit);
-        }
-
-        DrawNumber(renderer_, count, slotX + (10.0f * scale), slotY + (4.0f * scale), 1.0f * scale, SDL_Color{242, 245, 248, 255});
-    };
-
-    drawResourceSlot(0, SDL_Color{222, 66, 65, 255}, appleCount_, false);
-    drawResourceSlot(1, SDL_Color{166, 89, 227, 255}, berryCount_, false);
-    drawResourceSlot(2, SDL_Color{238, 209, 80, 255}, pearCount_, false);
-    drawResourceSlot(3, SDL_Color{219, 121, 93, 255}, meatCount_, true);
-
-    {
-        int zombieCount = 0;
-        int darkRaiderCount = 0;
-        int monsterCount = 0;
-        for (const HostileAI& hostile : hostiles_) {
-            if (!hostile.IsAlive()) {
-                continue;
-            }
-            if (hostile.Kind() == HostileKind::Zombie) {
-                ++zombieCount;
-            } else if (hostile.Kind() == HostileKind::Marauder) {
-                ++darkRaiderCount;
-            } else {
-                ++monsterCount;
-            }
-        }
-
-        const float threatX = panelX;
-        const float threatY = panelY + panelH + (4.0f * scale);
-        const float threatW = 116.0f * scale;
-        const float threatH = 18.0f * scale;
-        SDL_SetRenderDrawColor(renderer_, 18, 16, 20, 218);
-        SDL_FRect threat{threatX, threatY, threatW, threatH};
-        SDL_RenderFillRect(renderer_, &threat);
-        DrawText(renderer_, "HP " + std::to_string(player_.Health()), threatX + (4.0f * scale), threatY + (3.0f * scale), scale, SDL_Color{247, 222, 214, 255});
-        DrawText(renderer_, "Z " + std::to_string(zombieCount), threatX + (28.0f * scale), threatY + (10.0f * scale), scale, SDL_Color{180, 223, 158, 255});
-        DrawText(renderer_, "R " + std::to_string(darkRaiderCount), threatX + (54.0f * scale), threatY + (10.0f * scale), scale, SDL_Color{232, 192, 143, 255});
-        DrawText(renderer_, "M " + std::to_string(monsterCount), threatX + (82.0f * scale), threatY + (10.0f * scale), scale, SDL_Color{191, 168, 239, 255});
-    }
-
-    if (nearbyNpcIndex_ >= 0) {
-        const NpcAI& npc = npcs_[static_cast<std::size_t>(nearbyNpcIndex_)];
-        const float infoW = 112.0f * scale;
-        const float infoH = 34.0f * scale;
-        const float infoX = destination.x + destination.w - infoW - (6.0f * scale);
-        const float infoY = destination.y + (6.0f * scale);
-
-        SDL_SetRenderDrawColor(renderer_, 14, 21, 29, 222);
-        SDL_FRect info{infoX, infoY, infoW, infoH};
-        SDL_RenderFillRect(renderer_, &info);
-
-        SDL_SetRenderDrawColor(renderer_, 197, 176, 133, 255);
-        SDL_FRect top{infoX, infoY, infoW, 1.0f * scale};
-        SDL_FRect left{infoX, infoY, 1.0f * scale, infoH};
-        SDL_RenderFillRect(renderer_, &top);
-        SDL_RenderFillRect(renderer_, &left);
-
-        DrawText(renderer_, npc.Name(), infoX + (4.0f * scale), infoY + (4.0f * scale), scale, SDL_Color{244, 237, 221, 255});
-        DrawText(renderer_, npc.Role(), infoX + (4.0f * scale), infoY + (11.0f * scale), scale, SDL_Color{151, 203, 235, 255});
-        DrawText(renderer_, "TRAIT: " + npc.Trait(), infoX + (4.0f * scale), infoY + (19.0f * scale), scale, SDL_Color{215, 224, 233, 255});
-        DrawText(renderer_, "FOCUS: " + npc.Focus(), infoX + (4.0f * scale), infoY + (26.0f * scale), scale, SDL_Color{189, 212, 164, 255});
-    }
-
-    {
-        const float radarW = 120.0f * scale;
-        const float radarH = (10.0f + (static_cast<float>(npcs_.size()) * 8.0f)) * scale;
-        const float radarX = destination.x + destination.w - radarW - (6.0f * scale);
-        const float radarY = destination.y + destination.h - radarH - (6.0f * scale);
-
-        SDL_SetRenderDrawColor(renderer_, 11, 18, 24, 222);
-        SDL_FRect radar{radarX, radarY, radarW, radarH};
-        SDL_RenderFillRect(renderer_, &radar);
-
-        SDL_SetRenderDrawColor(renderer_, 158, 182, 204, 255);
-        SDL_FRect top{radarX, radarY, radarW, 1.0f * scale};
-        SDL_FRect left{radarX, radarY, 1.0f * scale, radarH};
-        SDL_RenderFillRect(renderer_, &top);
-        SDL_RenderFillRect(renderer_, &left);
-
-        DrawText(renderer_, "NPC RADAR", radarX + (4.0f * scale), radarY + (3.0f * scale), scale, SDL_Color{232, 238, 245, 255});
-
-        for (std::size_t index = 0; index < npcs_.size(); ++index) {
-            const NpcAI& npc = npcs_[index];
-            const int dx = static_cast<int>(std::lround(npc.CenterX() - player_.CenterX()));
-            const int dy = static_cast<int>(std::lround(npc.FeetY() - player_.FeetY()));
-            const int dist = static_cast<int>(std::lround(std::sqrt(static_cast<float>((dx * dx) + (dy * dy)))));
-            const float rowY = radarY + (10.0f * scale) + (static_cast<float>(index) * 8.0f * scale);
-
-            if (static_cast<int>(index) == nearbyNpcIndex_) {
-                SDL_SetRenderDrawColor(renderer_, 75, 105, 132, 200);
-                SDL_FRect highlight{radarX + (2.0f * scale), rowY - (1.0f * scale), radarW - (4.0f * scale), 7.0f * scale};
-                SDL_RenderFillRect(renderer_, &highlight);
-            }
-
-            DrawText(renderer_, npc.Name(), radarX + (4.0f * scale), rowY, scale, SDL_Color{244, 228, 187, 255});
-            DrawText(
-                renderer_,
-                "X" + FormatSignedInt(dx) + " Y" + FormatSignedInt(dy),
-                radarX + (28.0f * scale),
-                rowY,
-                scale,
-                SDL_Color{180, 206, 228, 255}
-            );
-            DrawText(
-                renderer_,
-                "D" + std::to_string(dist),
-                radarX + radarW - (18.0f * scale),
-                rowY,
-                scale,
-                SDL_Color{202, 222, 171, 255}
-            );
-        }
-    }
-
-    if (chatMode_ && chatNpcIndex_ >= 0) {
-        const NpcAI& npc = npcs_[static_cast<std::size_t>(chatNpcIndex_)];
-        const float chatW = destination.w - (24.0f * scale);
-        const float chatH = 34.0f * scale;
-        const float chatX = destination.x + (12.0f * scale);
-        const float chatY = destination.y + destination.h - chatH - (8.0f * scale);
-
-        SDL_SetRenderDrawColor(renderer_, 10, 14, 20, 232);
-        SDL_FRect chat{chatX, chatY, chatW, chatH};
-        SDL_RenderFillRect(renderer_, &chat);
-
-        SDL_SetRenderDrawColor(renderer_, 90, 145, 194, 255);
-        SDL_FRect top{chatX, chatY, chatW, 1.0f * scale};
-        SDL_RenderFillRect(renderer_, &top);
-
-        DrawText(renderer_, npc.Name() + " CHAT", chatX + (4.0f * scale), chatY + (4.0f * scale), scale, SDL_Color{233, 240, 247, 255});
-
-        const std::vector<std::string> replyLines = WrapText(chatReply_, 32);
-        if (!replyLines.empty()) {
-            DrawText(
-                renderer_,
-                replyLines[0],
-                chatX + (4.0f * scale),
-                chatY + (11.0f * scale),
-                scale,
-                SDL_Color{174, 227, 196, 255}
-            );
-        }
-
-        std::string inputLine = "YOU: " + chatInput_;
-        if (static_cast<int>(SDL_GetTicks() / 350U) % 2 == 0 && chatInput_.size() < 42U) {
-            inputLine += "_";
-        }
-        DrawText(renderer_, inputLine, chatX + (4.0f * scale), chatY + (21.0f * scale), scale, SDL_Color{242, 233, 210, 255});
-        DrawText(renderer_, "ENTER SEND  ESC CLOSE", chatX + chatW - (81.0f * scale), chatY + (4.0f * scale), scale, SDL_Color{143, 153, 167, 255});
-    }
-}

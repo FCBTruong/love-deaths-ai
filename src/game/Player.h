@@ -9,9 +9,18 @@ public:
     static constexpr float kJumpDuration = 0.42f;
     static constexpr float kAttackDuration = 0.18f;
 
+    enum class ToolVisual {
+        Blade,
+        Fence,
+        Soil,
+        Seed,
+        Rod
+    };
+
     Player();
 
     void SetPosition(float x, float y);
+    void SetToolVisual(ToolVisual toolVisual);
     void TriggerJump();
     void TriggerAttack();
     void Update(float dt, bool up, bool down, bool left, bool right, float speedMultiplier, bool preserveFacing);
@@ -49,6 +58,7 @@ private:
     bool moving_;
     float facingX_;
     FacingDirection facingDirection_;
+    ToolVisual toolVisual_;
 
     float jumpTimer_;
     bool jumping_;

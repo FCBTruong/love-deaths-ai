@@ -25,6 +25,9 @@ public:
     void Update(float dt, const TileMap& map, float playerX, float playerY);
     std::string TriggerConversation(int appleCount, int berryCount, int pearCount, int meatCount);
     std::string RespondToMessage(const std::string& message, int appleCount, int berryCount, int pearCount, int meatCount);
+    std::string ApplyPlayerCommand(const std::string& message, float playerX, float playerY);
+    std::string ApplyAiDirective(const std::string& intent, const std::string& speech, float playerX, float playerY);
+    void SetAiSpeech(const std::string& speech);
     void ApplyDamage(int amount);
     void Restore();
     void DrawShadow(SDL_Renderer* renderer, const Camera2D& camera) const;
@@ -44,8 +47,16 @@ public:
     float CenterY() const;
     float FeetY() const;
     int Health() const;
+    bool MatchesName(const std::string& messageUpper) const;
 
 private:
+    enum class CommandMode {
+        Wander,
+        FollowPlayer,
+        HoldPosition,
+        ReturnHome
+    };
+
     void PickNewBehavior();
     void SetBubble(std::string text, float duration);
     std::string BuildThoughtText() const;
@@ -57,6 +68,8 @@ private:
 
     float x_;
     float y_;
+    float homeX_;
+    float homeY_;
     float width_;
     float height_;
     float speed_;
@@ -73,6 +86,9 @@ private:
     float bubbleTimer_;
     std::string bubbleText_;
     int health_;
+    CommandMode commandMode_;
+    float holdX_;
+    float holdY_;
 
     std::mt19937 rng_;
 };

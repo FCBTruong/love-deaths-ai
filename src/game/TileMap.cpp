@@ -466,13 +466,13 @@ PropType GetPropAt(int x, int y, Terrain terrain) {
     if ((terrain == Terrain::Grass || terrain == Terrain::Dirt) && decorRoll > 0.993f) {
         return PropType::Rock;
     }
-    if (terrain == Terrain::DarkGrass && foliageRoll > 0.72f) {
+    if (terrain == Terrain::DarkGrass && foliageRoll > 0.90f) {
         return PropType::Bush;
     }
-    if (terrain == Terrain::Grass && foliageRoll > 0.78f) {
+    if (terrain == Terrain::Grass && foliageRoll > 0.92f) {
         return PropType::TallGrass;
     }
-    if ((terrain == Terrain::Grass || terrain == Terrain::DarkGrass || terrain == Terrain::Sand) && flowerRoll > 0.90f) {
+    if ((terrain == Terrain::Grass || terrain == Terrain::DarkGrass || terrain == Terrain::Sand) && flowerRoll > 0.965f) {
         return PropType::FlowerPatch;
     }
     return PropType::None;

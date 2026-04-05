@@ -17,8 +17,14 @@ FetchContent_MakeAvailable(SDL3)
 
 add_executable(My2DGame
     src/main.cpp
+    src/ai/AiRuntimeManager.cpp
+    src/ai/LocalLLMClient.cpp
+    src/ai/NpcChatSystem.cpp
+    src/ai/NpcCommandAI.cpp
     src/core/App.cpp
     src/core/Camera2D.cpp
+    src/core/HudRenderer.cpp
+    src/core/PixelFont.cpp
     src/game/Animal.cpp
     src/game/HostileAI.cpp
     src/game/NpcAI.cpp

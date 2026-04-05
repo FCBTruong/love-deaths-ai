@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "ai/AiRuntimeManager.h"
 #include "core/Camera2D.h"
 #include "game/Animal.h"
 #include "game/HostileAI.h"
@@ -27,12 +28,9 @@ private:
     void Update(float dt);
     void Render();
     void DrawFogOfWar(const Camera2D& camera, const SDL_FRect& destination);
-    void DrawUI(const SDL_FRect& destination);
     void UpdateEffects(float dt, bool moving);
     void DrawWorldEffects(const Camera2D& camera);
     void DrawHarvestFlyEffects(const Camera2D& camera, const SDL_FRect& destination);
-    void DrawNpcBubbles(const Camera2D& camera, const SDL_FRect& destination);
-    void DrawNpcLocators(const Camera2D& camera, const SDL_FRect& destination);
     void DrawFences(const Camera2D& camera, bool drawBeforePlayer, float splitWorldY);
     void DrawSoilPlots(const Camera2D& camera, bool drawBeforePlayer, float splitWorldY);
     void DrawPlacementPreview(const Camera2D& camera);
@@ -54,6 +52,7 @@ private:
     float cameraOffsetX_;
     float cameraOffsetY_;
     bool draggingCamera_;
+    bool recenteringCamera_;
     int lastMouseX_;
     int lastMouseY_;
 
@@ -65,6 +64,9 @@ private:
     bool slot2PressedLast_;
     bool slot3PressedLast_;
     bool slot4PressedLast_;
+    bool slot5PressedLast_;
+    bool enterPressedLast_;
+    bool suppressEnterOpen_;
     bool undoPressedLast_;
     bool fenceVerticalPlacement_;
     bool layerUpPressedLast_;
@@ -73,6 +75,8 @@ private:
     std::string statusText_;
     std::string chatInput_;
     std::string chatReply_;
+    std::string playerChatText_;
+    float playerChatTimer_;
     float statusTimer_;
     int currentLayer_;
 
@@ -148,7 +152,17 @@ private:
         Weapon,
         Fence,
         Soil,
-        Seed
+        Seed,
+        Rod
+    };
+
+    struct FishingCast {
+        bool active;
+        float worldX;
+        float worldY;
+        float timer;
+        float biteTime;
+        float totalTime;
     };
 
     std::vector<WaterSplash> splashes_;
@@ -161,6 +175,7 @@ private:
     std::vector<NpcAI> npcs_;
     std::vector<HostileAI> hostiles_;
     HeldItem heldItem_;
+    FishingCast fishingCast_;
     int nearbyNpcIndex_;
     int chatNpcIndex_;
     float splashSpawnTimer_;
@@ -171,4 +186,7 @@ private:
     float shakeMagnitude_;
     float shakeOffsetX_;
     float shakeOffsetY_;
+    AiRuntimeManager aiRuntime_;
+    bool aiBackendReady_;
+    std::string aiBackendStatus_;
 };
