@@ -116,7 +116,12 @@ void DrawNpcLocators(SDL_Renderer* renderer, const Camera2D& camera, const SDL_F
         markerY = std::clamp(markerY, top, bottom);
 
         const bool nearest = static_cast<int>(index) == nearbyNpcIndex;
-        SDL_SetRenderDrawColor(renderer, nearest ? 255 : 244, nearest ? 226 : 193, nearest ? 122 : 96, 245);
+        const bool alive = npc.IsAlive();
+        SDL_SetRenderDrawColor(renderer,
+                               alive ? (nearest ? 255 : 244) : 214,
+                               alive ? (nearest ? 226 : 193) : 96,
+                               alive ? (nearest ? 122 : 96) : 96,
+                               245);
         SDL_FRect pin{markerX - (1.0f * scale), markerY - (1.0f * scale), 3.0f * scale, 3.0f * scale};
         SDL_RenderFillRect(renderer, &pin);
 
@@ -124,9 +129,12 @@ void DrawNpcLocators(SDL_Renderer* renderer, const Camera2D& camera, const SDL_F
         SDL_FRect stem{markerX, markerY + (2.0f * scale), 1.0f * scale, 3.0f * scale};
         SDL_RenderFillRect(renderer, &stem);
 
-        pixel_font::DrawBitmapText(renderer, npc.Name(), markerX - (pixel_font::MeasureText(npc.Name(), scale) * 0.5f),
+        const std::string label = std::string(npc.Name()) + " " + npc.StateLabel();
+        pixel_font::DrawBitmapText(renderer, label, markerX - (pixel_font::MeasureText(label, scale) * 0.5f),
                                    markerY - (7.0f * scale), scale,
-                                   nearest ? SDL_Color{255, 244, 212, 255} : SDL_Color{248, 235, 197, 235});
+                                   alive
+                                       ? (nearest ? SDL_Color{255, 244, 212, 255} : SDL_Color{248, 235, 197, 235})
+                                       : SDL_Color{255, 188, 188, 255});
     }
 }
 

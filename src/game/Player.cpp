@@ -4,31 +4,42 @@
 #include <cmath>
 
 Player::Player()
-        : x_(0.0f),
-            y_(0.0f),
-            width_(12.0f),
-            height_(14.0f),
-            speed_(96.0f),
-            animTime_(0.0f),
-            idleTime_(0.0f),
-            moving_(false),
-            facingX_(1.0f),
-            facingDirection_(FacingDirection::Down),
-            toolVisual_(ToolVisual::Blade),
-            jumpTimer_(0.0f),
-            jumping_(false),
-            attackTimer_(0.0f),
-            attacking_(false),
-            health_(8),
-            maxHealth_(8) {}
+        : Pawn(0.0f, 0.0f, 12.0f, 14.0f, 96.0f, 1.0f),
+          animTime_(0.0f),
+          idleTime_(0.0f),
+          facingDirection_(FacingDirection::Down),
+          toolVisual_(ToolVisual::Blade),
+          jumpTimer_(0.0f),
+          jumping_(false),
+          swimming_(false),
+          attackTimer_(0.0f),
+          attacking_(false),
+          health_(8),
+          maxHealth_(8) {}
 
-void Player::SetPosition(float x, float y) {
-    x_ = x;
-    y_ = y;
+void Player::OnBeginPlay() {
+    animTime_ = 0.0f;
+    idleTime_ = 0.0f;
+    jumping_ = false;
+    jumpTimer_ = 0.0f;
+    swimming_ = false;
+    attacking_ = false;
+    attackTimer_ = 0.0f;
+    moving_ = false;
+}
+
+void Player::OnEndPlay() {
+    moving_ = false;
+    jumping_ = false;
+    attacking_ = false;
 }
 
 void Player::SetToolVisual(ToolVisual toolVisual) {
     toolVisual_ = toolVisual;
+}
+
+void Player::SetSwimming(bool swimming) {
+    swimming_ = swimming;
 }
 
 void Player::TriggerJump() {
@@ -53,6 +64,8 @@ void Player::HealFull() {
 }
 
 void Player::Update(float dt, bool up, bool down, bool left, bool right, float speedMultiplier, bool preserveFacing) {
+    Tick(dt);
+
     float moveX = 0.0f;
     float moveY = 0.0f;
 
@@ -146,6 +159,14 @@ void Player::DrawShadow(SDL_Renderer* renderer, const Camera2D& camera) const {
     const float screenX = std::floor(x_ - camera.x);
     const float screenY = std::floor(y_ - camera.y);
 
+    if (swimming_) {
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 26);
+        SDL_FRect rippleShadow{screenX + 1.0f, screenY + 10.0f, 10.0f, 2.0f};
+        SDL_RenderFillRect(renderer, &rippleShadow);
+        return;
+    }
+
     float jumpFactor = 0.0f;
     if (jumping_) {
         const float t = jumpTimer_ / kJumpDuration;
@@ -193,6 +214,13 @@ void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
 
     const float legShift = (frame % 2 == 0) ? 1.0f : -1.0f;
     const float renderY = screenY + bobY - jumpOffsetY;
+    const float swimLineY = renderY + 8.0f;
+    const float paddleShift = moving_ ? ((frame % 2 == 0) ? 1.0f : -1.0f) : 0.0f;
+    const auto drawBootCaps = [&](float x0, float y0, float width) {
+        SDL_SetRenderDrawColor(renderer, 47, 32, 25, 255);
+        SDL_FRect boot{x0, y0, width, 1.0f};
+        SDL_RenderFillRect(renderer, &boot);
+    };
 
     const auto drawHeldToolSide = [&](float handX, float handY) {
         if (toolVisual_ == ToolVisual::Blade) {
@@ -231,6 +259,15 @@ void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
             SDL_SetRenderDrawColor(renderer, 226, 230, 235, 255);
             SDL_FRect line{(facingX_ >= 0.0f) ? (handX + 5.0f) : (handX - 1.0f), handY - 1.0f, 1.0f, 3.0f};
             SDL_RenderFillRect(renderer, &line);
+        } else if (toolVisual_ == ToolVisual::Bow) {
+            SDL_SetRenderDrawColor(renderer, 121, 80, 47, 255);
+            SDL_FRect bowBody{(facingX_ >= 0.0f) ? handX : (handX - 4.0f), handY - 2.0f, 1.0f, 5.0f};
+            SDL_FRect bowTip{(facingX_ >= 0.0f) ? (handX + 2.0f) : (handX - 2.0f), handY - 1.0f, 1.0f, 3.0f};
+            SDL_RenderFillRect(renderer, &bowBody);
+            SDL_RenderFillRect(renderer, &bowTip);
+            SDL_SetRenderDrawColor(renderer, 223, 226, 231, 255);
+            SDL_FRect string{(facingX_ >= 0.0f) ? (handX + 1.0f) : (handX - 1.0f), handY - 2.0f, 1.0f, 5.0f};
+            SDL_RenderFillRect(renderer, &string);
         }
     };
 
@@ -270,8 +307,77 @@ void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
             SDL_SetRenderDrawColor(renderer, 226, 230, 235, 255);
             SDL_FRect line{handX + 1.0f, upside ? (handY - 6.0f) : (handY + 6.0f), 1.0f, 2.0f};
             SDL_RenderFillRect(renderer, &line);
+        } else if (toolVisual_ == ToolVisual::Bow) {
+            SDL_SetRenderDrawColor(renderer, 121, 80, 47, 255);
+            SDL_FRect bowStem{handX, upside ? (handY - 5.0f) : handY, 1.0f, 6.0f};
+            SDL_FRect bowArc{handX + 1.0f, upside ? (handY - 4.0f) : (handY + 1.0f), 1.0f, 4.0f};
+            SDL_RenderFillRect(renderer, &bowStem);
+            SDL_RenderFillRect(renderer, &bowArc);
+            SDL_SetRenderDrawColor(renderer, 223, 226, 231, 255);
+            SDL_FRect string{handX + 1.0f, upside ? (handY - 5.0f) : handY, 1.0f, 6.0f};
+            SDL_RenderFillRect(renderer, &string);
         }
     };
+
+    if (swimming_) {
+        SDL_SetRenderDrawColor(renderer, 233, 199, 158, 255);
+        if (facingUp) {
+            SDL_FRect head{screenX + 2.0f, renderY + 1.0f, 8.0f, 5.0f};
+            SDL_RenderFillRect(renderer, &head);
+            SDL_SetRenderDrawColor(renderer, 20, 14, 11, 255);
+            SDL_FRect hair{screenX + 2.0f, renderY + 0.0f, 8.0f, 3.0f};
+            SDL_RenderFillRect(renderer, &hair);
+        } else {
+            SDL_FRect head{screenX + 2.0f, renderY, 8.0f, 6.0f};
+            SDL_RenderFillRect(renderer, &head);
+            SDL_SetRenderDrawColor(renderer, 20, 14, 11, 255);
+            SDL_FRect hair{screenX + 2.0f, renderY, 8.0f, 2.0f};
+            SDL_RenderFillRect(renderer, &hair);
+            if (facingSide) {
+                SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
+                SDL_FRect eye{(facingX_ >= 0.0f) ? (screenX + 7.0f) : (screenX + 4.0f), renderY + 2.0f, 1.0f, 1.0f};
+                SDL_RenderFillRect(renderer, &eye);
+            } else {
+                SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
+                SDL_FRect eyeL{screenX + 4.0f, renderY + 2.0f, 1.0f, 1.0f};
+                SDL_FRect eyeR{screenX + 7.0f, renderY + 2.0f, 1.0f, 1.0f};
+                SDL_RenderFillRect(renderer, &eyeL);
+                SDL_RenderFillRect(renderer, &eyeR);
+            }
+        }
+
+        SDL_SetRenderDrawColor(renderer, 28, 47, 138, 255);
+        SDL_FRect shoulders{screenX + 2.0f, renderY + 5.0f, 8.0f, 3.0f};
+        SDL_RenderFillRect(renderer, &shoulders);
+        SDL_SetRenderDrawColor(renderer, 57, 85, 194, 255);
+        SDL_FRect clothLight{screenX + 3.0f, renderY + 6.0f, 3.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &clothLight);
+
+        SDL_SetRenderDrawColor(renderer, 233, 199, 158, 255);
+        if (facingSide) {
+            SDL_FRect armFront{screenX + (facingX_ >= 0.0f ? 8.0f : 1.0f), renderY + 7.0f + paddleShift, 2.0f, 1.0f};
+            SDL_FRect armBack{screenX + (facingX_ >= 0.0f ? 2.0f : 7.0f), renderY + 8.0f - paddleShift, 2.0f, 1.0f};
+            SDL_RenderFillRect(renderer, &armFront);
+            SDL_RenderFillRect(renderer, &armBack);
+        } else {
+            SDL_FRect armL{screenX + 1.0f + paddleShift, renderY + 7.0f, 2.0f, 1.0f};
+            SDL_FRect armR{screenX + 9.0f - paddleShift, renderY + 7.0f, 2.0f, 1.0f};
+            SDL_RenderFillRect(renderer, &armL);
+            SDL_RenderFillRect(renderer, &armR);
+        }
+
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer, 70, 145, 219, 170);
+        SDL_FRect waterBand{screenX - 1.0f, swimLineY, 14.0f, 5.0f};
+        SDL_RenderFillRect(renderer, &waterBand);
+        SDL_SetRenderDrawColor(renderer, 184, 231, 255, 190);
+        SDL_FRect foamA{screenX + 1.0f + paddleShift, swimLineY - 1.0f, 3.0f, 1.0f};
+        SDL_FRect foamB{screenX + 7.0f - paddleShift, swimLineY - 1.0f, 3.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &foamA);
+        SDL_RenderFillRect(renderer, &foamB);
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+        return;
+    }
 
     if (facingUp) {
         SDL_SetRenderDrawColor(renderer, 22, 35, 106, 255);
@@ -279,6 +385,8 @@ void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
         SDL_FRect legR{screenX + 7.0f - (legShift * 0.5f), renderY + 11.0f, 2.0f, 3.0f};
         SDL_RenderFillRect(renderer, &legL);
         SDL_RenderFillRect(renderer, &legR);
+        drawBootCaps(legL.x, renderY + 13.0f, 2.0f);
+        drawBootCaps(legR.x, renderY + 13.0f, 2.0f);
 
         SDL_SetRenderDrawColor(renderer, 233, 199, 158, 255);
         SDL_FRect neck{screenX + 4.0f, renderY + 4.0f, 4.0f, 2.0f};
@@ -287,10 +395,16 @@ void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
         SDL_SetRenderDrawColor(renderer, 20, 14, 11, 255);
         SDL_FRect hair{screenX + 2.0f, renderY, 8.0f, 4.0f};
         SDL_RenderFillRect(renderer, &hair);
+        SDL_SetRenderDrawColor(renderer, 68, 49, 35, 255);
+        SDL_FRect hairLight{screenX + 3.0f, renderY + 1.0f, 3.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &hairLight);
 
         SDL_SetRenderDrawColor(renderer, 233, 199, 158, 255);
         SDL_FRect headBack{screenX + 2.0f, renderY + 2.0f, 8.0f, 4.0f};
         SDL_RenderFillRect(renderer, &headBack);
+        SDL_SetRenderDrawColor(renderer, 248, 220, 183, 255);
+        SDL_FRect neckLight{screenX + 5.0f, renderY + 4.0f, 2.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &neckLight);
 
         SDL_SetRenderDrawColor(renderer, 28, 47, 138, 255);
         SDL_FRect body{screenX + 2.0f, renderY + 5.0f, 8.0f, 7.0f};
@@ -299,6 +413,14 @@ void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
         SDL_SetRenderDrawColor(renderer, 18, 31, 92, 255);
         SDL_FRect shoulders{screenX + 1.0f, renderY + 5.0f, 10.0f, 2.0f};
         SDL_RenderFillRect(renderer, &shoulders);
+        SDL_SetRenderDrawColor(renderer, 56, 82, 188, 255);
+        SDL_FRect coatLight{screenX + 3.0f, renderY + 6.0f, 2.0f, 5.0f};
+        SDL_FRect coatSeam{screenX + 6.0f, renderY + 6.0f, 1.0f, 6.0f};
+        SDL_RenderFillRect(renderer, &coatLight);
+        SDL_RenderFillRect(renderer, &coatSeam);
+        SDL_SetRenderDrawColor(renderer, 119, 84, 41, 255);
+        SDL_FRect belt{screenX + 2.0f, renderY + 9.0f, 8.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &belt);
 
         const float handY = renderY + 8.0f + idleHandBob;
         drawHeldToolVertical(screenX + 8.0f, handY, true);
@@ -321,14 +443,33 @@ void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
         SDL_FRect legR{screenX + 7.0f - legShift, renderY + 11.0f, 3.0f, 3.0f};
         SDL_RenderFillRect(renderer, &legL);
         SDL_RenderFillRect(renderer, &legR);
+        drawBootCaps(legL.x, renderY + 13.0f, 3.0f);
+        drawBootCaps(legR.x, renderY + 13.0f, 3.0f);
 
         SDL_FRect body{screenX + 1.0f, renderY + 5.0f, 10.0f, 8.0f};
         SDL_SetRenderDrawColor(renderer, 28, 47, 138, 255);
         SDL_RenderFillRect(renderer, &body);
+        SDL_SetRenderDrawColor(renderer, 57, 85, 194, 255);
+        SDL_FRect coatLight{screenX + 2.0f, renderY + 6.0f, 3.0f, 6.0f};
+        SDL_FRect coatLightR{screenX + 7.0f, renderY + 6.0f, 2.0f, 5.0f};
+        SDL_RenderFillRect(renderer, &coatLight);
+        SDL_RenderFillRect(renderer, &coatLightR);
+        SDL_SetRenderDrawColor(renderer, 118, 84, 41, 255);
+        SDL_FRect belt{screenX + 2.0f, renderY + 9.0f, 8.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &belt);
 
         SDL_FRect head{screenX + 2.0f, renderY, 8.0f, 6.0f};
         SDL_SetRenderDrawColor(renderer, 233, 199, 158, 255);
         SDL_RenderFillRect(renderer, &head);
+        SDL_SetRenderDrawColor(renderer, 249, 222, 186, 255);
+        SDL_FRect faceLight{screenX + 4.0f, renderY + 1.0f, 3.0f, 2.0f};
+        SDL_RenderFillRect(renderer, &faceLight);
+        SDL_SetRenderDrawColor(renderer, 20, 14, 11, 255);
+        SDL_FRect hairline{screenX + 2.0f, renderY, 8.0f, 2.0f};
+        SDL_RenderFillRect(renderer, &hairline);
+        SDL_SetRenderDrawColor(renderer, 72, 54, 39, 255);
+        SDL_FRect hairLight{screenX + 3.0f, renderY + 1.0f, 2.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &hairLight);
 
         SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
         if (blinking) {
@@ -364,14 +505,31 @@ void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
         SDL_FRect legR{screenX + 7.0f - legShift, renderY + 11.0f, 3.0f, 3.0f};
         SDL_RenderFillRect(renderer, &legL);
         SDL_RenderFillRect(renderer, &legR);
+        drawBootCaps(legL.x, renderY + 13.0f, 3.0f);
+        drawBootCaps(legR.x, renderY + 13.0f, 3.0f);
 
         SDL_FRect body{screenX + 1.0f, renderY + 5.0f, 10.0f, 8.0f};
         SDL_SetRenderDrawColor(renderer, 28, 47, 138, 255);
         SDL_RenderFillRect(renderer, &body);
+        SDL_SetRenderDrawColor(renderer, 57, 85, 194, 255);
+        SDL_FRect coatLight{screenX + (facingX_ >= 0.0f ? 2.0f : 5.0f), renderY + 6.0f, 3.0f, 6.0f};
+        SDL_RenderFillRect(renderer, &coatLight);
+        SDL_SetRenderDrawColor(renderer, 118, 84, 41, 255);
+        SDL_FRect belt{screenX + 2.0f, renderY + 9.0f, 8.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &belt);
 
         SDL_FRect head{screenX + 2.0f, renderY, 8.0f, 6.0f};
         SDL_SetRenderDrawColor(renderer, 233, 199, 158, 255);
         SDL_RenderFillRect(renderer, &head);
+        SDL_SetRenderDrawColor(renderer, 248, 220, 183, 255);
+        SDL_FRect cheekLight{screenX + (facingX_ >= 0.0f ? 5.0f : 3.0f), renderY + 1.0f, 2.0f, 2.0f};
+        SDL_RenderFillRect(renderer, &cheekLight);
+        SDL_SetRenderDrawColor(renderer, 20, 14, 11, 255);
+        SDL_FRect hairTop{screenX + 2.0f, renderY, 8.0f, 2.0f};
+        SDL_RenderFillRect(renderer, &hairTop);
+        SDL_SetRenderDrawColor(renderer, 72, 54, 39, 255);
+        SDL_FRect sideHair{screenX + (facingX_ >= 0.0f ? 3.0f : 6.0f), renderY + 1.0f, 1.0f, 2.0f};
+        SDL_RenderFillRect(renderer, &sideHair);
 
         const float eyeX = (facingX_ >= 0.0f) ? (screenX + 7.0f) : (screenX + 4.0f);
         SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
@@ -405,18 +563,6 @@ void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
     }
 }
 
-float Player::CenterX() const {
-    return x_ + (width_ * 0.5f);
-}
-
-float Player::CenterY() const {
-    return y_ + (height_ * 0.5f);
-}
-
-float Player::FeetY() const {
-    return y_ + height_;
-}
-
 float Player::FacingX() const {
     return facingX_ >= 0.0f ? 1.0f : -1.0f;
 }
@@ -429,14 +575,6 @@ float Player::FacingY() const {
         return 1.0f;
     }
     return 0.0f;
-}
-
-float Player::X() const {
-    return x_;
-}
-
-float Player::Y() const {
-    return y_;
 }
 
 int Player::Health() const {

@@ -7,10 +7,11 @@
 #include <string>
 
 #include "core/Camera2D.h"
+#include "game/Pawn.h"
 
 class TileMap;
 
-class NpcAI {
+class NpcAI : public Pawn {
 public:
     NpcAI(
         std::string name,
@@ -41,15 +42,14 @@ public:
     const std::string& Role() const;
     const std::string& Trait() const;
     const std::string& Focus() const;
-    float X() const;
-    float Y() const;
-    float CenterX() const;
-    float CenterY() const;
-    float FeetY() const;
     int Health() const;
+    const char* StateLabel() const;
     bool MatchesName(const std::string& messageUpper) const;
 
 private:
+    void OnBeginPlay() override;
+    void OnEndPlay() override;
+
     enum class CommandMode {
         Wander,
         FollowPlayer,
@@ -66,17 +66,10 @@ private:
     std::string trait_;
     std::string focus_;
 
-    float x_;
-    float y_;
     float homeX_;
     float homeY_;
-    float width_;
-    float height_;
-    float speed_;
     float dirX_;
     float dirY_;
-    float facingX_;
-    bool moving_;
     float behaviorTimer_;
     float animTime_;
 

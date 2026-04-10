@@ -6,6 +6,7 @@
 #include <string>
 
 #include "core/Camera2D.h"
+#include "game/Pawn.h"
 
 class TileMap;
 
@@ -16,11 +17,10 @@ enum class HostileKind : std::uint8_t {
     Wraith
 };
 
-class HostileAI {
+class HostileAI : public Pawn {
 public:
     HostileAI(float x, float y, HostileKind kind, std::uint32_t seed);
 
-    void SetPosition(float x, float y);
     void Update(float dt, const TileMap& map, float targetX, float targetY, bool hasTarget);
     void DrawShadow(SDL_Renderer* renderer, const Camera2D& camera) const;
     void Draw(SDL_Renderer* renderer, const Camera2D& camera) const;
@@ -32,19 +32,10 @@ public:
     bool IsAlive() const;
     HostileKind Kind() const;
     const std::string& Label() const;
-    float X() const;
-    float Y() const;
-    float CenterX() const;
-    float CenterY() const;
-    float FeetY() const;
-
 private:
-    float x_;
-    float y_;
-    float width_;
-    float height_;
-    float speed_;
-    float facingX_;
+    void OnBeginPlay() override;
+    void OnEndPlay() override;
+
     float animTime_;
     float attackCooldown_;
     float emergeTimer_;

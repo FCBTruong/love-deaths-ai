@@ -4,6 +4,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <sstream>
 #include <utility>
 
 #include "game/TileMap.h"
@@ -24,6 +25,19 @@ std::string ToUpperCopy(const std::string& value) {
 bool ContainsWord(const std::string& haystackUpper, const char* needleUpper) {
     return haystackUpper.find(needleUpper) != std::string::npos;
 }
+
+int OneWayNameDistance(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) {
+        return 99;
+    }
+    int diff = 0;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (a[i] != b[i]) {
+            ++diff;
+        }
+    }
+    return diff;
+}
 }
 
 NpcAI::NpcAI(
@@ -35,21 +49,15 @@ NpcAI::NpcAI(
     float y,
     std::uint32_t seed
 )
-    : name_(std::move(name)),
+    : Pawn(x, y, 12.0f, 14.0f, 28.0f, 1.0f),
+      name_(std::move(name)),
       role_(std::move(role)),
       trait_(std::move(trait)),
       focus_(std::move(focus)),
-      x_(x),
-      y_(y),
       homeX_(x),
       homeY_(y),
-      width_(12.0f),
-      height_(14.0f),
-      speed_(28.0f),
       dirX_(1.0f),
       dirY_(0.0f),
-      facingX_(1.0f),
-      moving_(false),
       behaviorTimer_(0.0f),
       animTime_(0.0f),
       thoughtTimer_(1.0f),
@@ -63,6 +71,19 @@ NpcAI::NpcAI(
       holdY_(y),
       rng_(seed) {
     PickNewBehavior();
+}
+
+void NpcAI::OnBeginPlay() {
+    behaviorTimer_ = std::max(behaviorTimer_, 0.1f);
+    thoughtTimer_ = std::max(thoughtTimer_, 0.5f);
+    bubbleTimer_ = 0.0f;
+    bubbleText_.clear();
+}
+
+void NpcAI::OnEndPlay() {
+    moving_ = false;
+    bubbleTimer_ = 0.0f;
+    bubbleText_.clear();
 }
 
 void NpcAI::PickNewBehavior() {
@@ -102,6 +123,8 @@ std::string NpcAI::BuildThoughtText() const {
 }
 
 void NpcAI::Update(float dt, const TileMap& map, float playerX, float playerY) {
+    Tick(dt);
+
     if (!IsAlive()) {
         bubbleTimer_ = std::max(0.0f, bubbleTimer_ - dt);
         return;
@@ -395,6 +418,13 @@ void NpcAI::DrawShadow(SDL_Renderer* renderer, const Camera2D& camera) const {
     const float screenY = std::floor(y_ - camera.y);
 
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    if (!IsAlive()) {
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 52);
+        SDL_FRect shadow{screenX + 0.5f, screenY + 12.0f, 12.0f, 2.0f};
+        SDL_RenderFillRect(renderer, &shadow);
+        return;
+    }
+
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 64);
     SDL_FRect shadow{screenX + 1.0f, screenY + 12.0f, 10.0f, 2.5f};
     SDL_RenderFillRect(renderer, &shadow);
@@ -403,6 +433,30 @@ void NpcAI::DrawShadow(SDL_Renderer* renderer, const Camera2D& camera) const {
 void NpcAI::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
     const float screenX = std::floor(x_ - camera.x);
     const float screenY = std::floor(y_ - camera.y);
+
+    if (!IsAlive()) {
+        SDL_SetRenderDrawColor(renderer, 64, 70, 82, 255);
+        SDL_FRect legs{screenX + 2.0f, screenY + 9.0f, 8.0f, 2.0f};
+        SDL_RenderFillRect(renderer, &legs);
+
+        SDL_SetRenderDrawColor(renderer, 86, 118, 160, 255);
+        SDL_FRect body{screenX + 1.0f, screenY + 7.0f, 11.0f, 4.0f};
+        SDL_RenderFillRect(renderer, &body);
+
+        SDL_SetRenderDrawColor(renderer, 220, 191, 155, 255);
+        SDL_FRect head{screenX + 9.0f, screenY + 6.0f, 4.0f, 3.0f};
+        SDL_RenderFillRect(renderer, &head);
+
+        SDL_SetRenderDrawColor(renderer, 140, 87, 60, 255);
+        SDL_FRect hair{screenX + 9.0f, screenY + 6.0f, 4.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &hair);
+
+        SDL_SetRenderDrawColor(renderer, 132, 32, 36, 255);
+        SDL_FRect downMark{screenX + 5.0f, screenY + 4.0f, 3.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &downMark);
+        return;
+    }
+
     const float bobY = moving_ ? std::floor(std::sin(animTime_ * 2.1f) * 1.0f) : 0.0f;
     const float renderY = screenY + bobY;
     const float legShift = moving_ ? ((static_cast<int>(animTime_) % 2 == 0) ? 1.0f : -1.0f) : 0.0f;
@@ -463,28 +517,12 @@ const std::string& NpcAI::Focus() const {
     return focus_;
 }
 
-float NpcAI::X() const {
-    return x_;
-}
-
-float NpcAI::Y() const {
-    return y_;
-}
-
-float NpcAI::CenterX() const {
-    return x_ + (width_ * 0.5f);
-}
-
-float NpcAI::CenterY() const {
-    return y_ + (height_ * 0.5f);
-}
-
-float NpcAI::FeetY() const {
-    return y_ + height_;
-}
-
 int NpcAI::Health() const {
     return health_;
+}
+
+const char* NpcAI::StateLabel() const {
+    return IsAlive() ? "UP" : "DOWN";
 }
 
 bool NpcAI::MatchesName(const std::string& messageUpper) const {
@@ -495,6 +533,26 @@ bool NpcAI::MatchesName(const std::string& messageUpper) const {
 
     if (name_ == "MARA" && messageUpper.find("CLARE") != std::string::npos) {
         return true;
+    }
+    if (name_ == "MARA" && messageUpper.find("HARA") != std::string::npos) {
+        return true;
+    }
+
+    std::istringstream iss(messageUpper);
+    std::string token;
+    while (iss >> token) {
+        token.erase(std::remove_if(token.begin(), token.end(),
+                                   [](unsigned char ch) { return !std::isalpha(ch); }),
+                    token.end());
+        if (token.empty()) {
+            continue;
+        }
+        if (token == upperName) {
+            return true;
+        }
+        if (token.size() == upperName.size() && OneWayNameDistance(token, upperName) <= 1) {
+            return true;
+        }
     }
 
     return false;

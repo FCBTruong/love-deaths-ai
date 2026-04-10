@@ -3,14 +3,18 @@
 #include <SDL3/SDL.h>
 
 #include <cstdint>
+#include <future>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "ai/AiRuntimeManager.h"
+#include "ai/NpcChatSystem.h"
 #include "core/Camera2D.h"
 #include "game/Animal.h"
 #include "game/HostileAI.h"
 #include "game/NpcAI.h"
+#include "game/Pet.h"
 #include "game/Player.h"
 #include "game/TileMap.h"
 
@@ -24,6 +28,9 @@ public:
 
 private:
     void Shutdown();
+    bool InitializeAudio();
+    void ShutdownAudio();
+    void PlayMikoSound(bool happy);
     void ProcessEvents(bool& running);
     void Update(float dt);
     void Render();
@@ -44,6 +51,7 @@ private:
     SDL_Renderer* renderer_;
     SDL_Texture* frameTexture_;
     SDL_Texture* fogTexture_;
+    SDL_AudioStream* audioStream_;
 
     TileMap map_;
     Player player_;
@@ -65,6 +73,7 @@ private:
     bool slot3PressedLast_;
     bool slot4PressedLast_;
     bool slot5PressedLast_;
+    bool slot6PressedLast_;
     bool enterPressedLast_;
     bool suppressEnterOpen_;
     bool undoPressedLast_;
@@ -129,6 +138,15 @@ private:
         float size;
     };
 
+    struct ArrowShot {
+        float worldX;
+        float worldY;
+        float velX;
+        float velY;
+        float life;
+        float maxLife;
+    };
+
     struct Fence {
         float x;
         float y;
@@ -153,7 +171,8 @@ private:
         Fence,
         Soil,
         Seed,
-        Rod
+        Rod,
+        Bow
     };
 
     struct FishingCast {
@@ -169,13 +188,17 @@ private:
     std::vector<HarvestFly> harvestFly_;
     std::vector<ChopDebris> chopDebris_;
     std::vector<BloodParticle> bloodParticles_;
+    std::vector<ArrowShot> arrows_;
     std::vector<Fence> fences_;
     std::vector<SoilPlot> soilPlots_;
     std::vector<Animal> animals_;
+    Pet miko_;
     std::vector<NpcAI> npcs_;
     std::vector<HostileAI> hostiles_;
     HeldItem heldItem_;
     FishingCast fishingCast_;
+    std::future<npc_chat_system::AiFollowupResult> pendingAiFollowup_;
+    std::optional<npc_chat_system::AiFollowupRequest> pendingAiRequest_;
     int nearbyNpcIndex_;
     int chatNpcIndex_;
     float splashSpawnTimer_;
@@ -186,6 +209,7 @@ private:
     float shakeMagnitude_;
     float shakeOffsetX_;
     float shakeOffsetY_;
+    float mikoSoundCooldown_;
     AiRuntimeManager aiRuntime_;
     bool aiBackendReady_;
     std::string aiBackendStatus_;

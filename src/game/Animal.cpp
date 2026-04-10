@@ -6,15 +6,9 @@
 #include "game/TileMap.h"
 
 Animal::Animal(float x, float y, AnimalKind kind, std::uint32_t seed)
-    : x_(x),
-      y_(y),
-      width_(11.0f),
-      height_(8.0f),
-      speed_(30.0f),
+    : Pawn(x, y, 11.0f, 8.0f, 30.0f, 1.0f),
       dirX_(1.0f),
       dirY_(0.0f),
-      facingX_(1.0f),
-      moving_(false),
       behaviorTimer_(0.0f),
       animTime_(0.0f),
     leaping_(false),
@@ -57,6 +51,16 @@ Animal::Animal(float x, float y, AnimalKind kind, std::uint32_t seed)
     PickNewBehavior();
 }
 
+void Animal::OnBeginPlay() {
+    behaviorTimer_ = std::max(behaviorTimer_, 0.1f);
+    animTime_ = 0.0f;
+}
+
+void Animal::OnEndPlay() {
+    moving_ = false;
+    leaping_ = false;
+}
+
 void Animal::PickNewBehavior() {
     std::uniform_real_distribution<float> chance(0.0f, 1.0f);
     std::uniform_real_distribution<float> moveTime(0.8f, 2.4f);
@@ -77,6 +81,8 @@ void Animal::PickNewBehavior() {
 }
 
 void Animal::Update(float dt, const TileMap& map) {
+    Tick(dt);
+
     const bool fish = kind_ == AnimalKind::Fish;
 
     behaviorTimer_ -= dt;
@@ -284,22 +290,3 @@ AnimalKind Animal::Kind() const {
     return kind_;
 }
 
-float Animal::X() const {
-    return x_;
-}
-
-float Animal::Y() const {
-    return y_;
-}
-
-float Animal::CenterX() const {
-    return x_ + (width_ * 0.5f);
-}
-
-float Animal::CenterY() const {
-    return y_ + (height_ * 0.5f);
-}
-
-float Animal::FeetY() const {
-    return y_ + height_;
-}

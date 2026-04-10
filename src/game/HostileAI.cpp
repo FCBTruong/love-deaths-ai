@@ -14,15 +14,15 @@ float DistanceSq(float ax, float ay, float bx, float by) {
 }
 
 HostileAI::HostileAI(float x, float y, HostileKind kind, std::uint32_t seed)
-    : x_(x),
-      y_(y),
-      width_(kind == HostileKind::Ghoul ? 14.0f : (kind == HostileKind::Wraith ? 10.0f : 12.0f)),
-      height_(kind == HostileKind::Ghoul ? 16.0f : (kind == HostileKind::Wraith ? 15.0f : 14.0f)),
-      speed_(
+    : Pawn(
+          x,
+          y,
+          kind == HostileKind::Ghoul ? 14.0f : (kind == HostileKind::Wraith ? 10.0f : 12.0f),
+          kind == HostileKind::Ghoul ? 16.0f : (kind == HostileKind::Wraith ? 15.0f : 14.0f),
           kind == HostileKind::Zombie ? 26.0f :
           kind == HostileKind::Marauder ? 36.0f :
-          kind == HostileKind::Ghoul ? 31.0f : 42.0f),
-      facingX_((seed % 2U) == 0U ? 1.0f : -1.0f),
+          kind == HostileKind::Ghoul ? 31.0f : 42.0f,
+          (seed % 2U) == 0U ? 1.0f : -1.0f),
       animTime_(0.0f),
       attackCooldown_(0.0f),
       emergeTimer_(0.85f),
@@ -37,12 +37,18 @@ HostileAI::HostileAI(float x, float y, HostileKind kind, std::uint32_t seed)
           kind == HostileKind::Marauder ? "MARAUDER" :
           kind == HostileKind::Ghoul ? "GHOUL" : "WRAITH") {}
 
-void HostileAI::SetPosition(float x, float y) {
-    x_ = x;
-    y_ = y;
+void HostileAI::OnBeginPlay() {
+    attackCooldown_ = std::max(attackCooldown_, 0.0f);
+}
+
+void HostileAI::OnEndPlay() {
+    attackCooldown_ = 0.0f;
+    moving_ = false;
 }
 
 void HostileAI::Update(float dt, const TileMap& map, float targetX, float targetY, bool hasTarget) {
+    Tick(dt);
+
     if (!IsAlive()) {
         return;
     }
@@ -258,24 +264,4 @@ HostileKind HostileAI::Kind() const {
 
 const std::string& HostileAI::Label() const {
     return label_;
-}
-
-float HostileAI::X() const {
-    return x_;
-}
-
-float HostileAI::Y() const {
-    return y_;
-}
-
-float HostileAI::CenterX() const {
-    return x_ + (width_ * 0.5f);
-}
-
-float HostileAI::CenterY() const {
-    return y_ + (height_ * 0.5f);
-}
-
-float HostileAI::FeetY() const {
-    return y_ + height_;
 }

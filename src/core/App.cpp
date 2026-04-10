@@ -1,15 +1,18 @@
 #include "core/App.h"
 
+#include "ai/AiDebugLog.h"
 #include "ai/NpcChatSystem.h"
 #include "core/HudRenderer.h"
 #include "core/PixelFont.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <random>
+#include <vector>
 #include <vector>
 
 #if defined(_WIN32)
@@ -89,6 +92,7 @@ App::App()
       renderer_(nullptr),
       frameTexture_(nullptr),
     fogTexture_(nullptr),
+    audioStream_(nullptr),
     map_(8),
       player_(),
     camera_(),
@@ -107,6 +111,7 @@ App::App()
     slot3PressedLast_(false),
     slot4PressedLast_(false),
     slot5PressedLast_(false),
+    slot6PressedLast_(false),
     enterPressedLast_(false),
     suppressEnterOpen_(false),
     undoPressedLast_(false),
@@ -114,7 +119,7 @@ App::App()
     layerUpPressedLast_(false),
     layerDownPressedLast_(false),
     chatMode_(false),
-    statusText_("WASD move | Shift slow walk | 1 weapon | 2 fence | 3 soil | 4 seeds | 5 rod | J use | E rotate/talk | Ctrl+Z undo"),
+    statusText_("WASD move | Shift slow walk | 1 weapon | 2 fence | 3 soil | 4 seeds | 5 rod | 6 bow | J use | E rotate/talk | Ctrl+Z undo"),
     chatInput_(),
     chatReply_(),
     playerChatText_(),
@@ -129,13 +134,17 @@ App::App()
     harvestFly_(),
     chopDebris_(),
     bloodParticles_(),
+    arrows_(),
     fences_(),
     soilPlots_(),
     animals_(),
+    miko_("MIKO", -10.0f, 10.0f),
     npcs_(),
     hostiles_(),
     heldItem_(HeldItem::Weapon),
     fishingCast_{false, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
+    pendingAiFollowup_(),
+    pendingAiRequest_(),
     nearbyNpcIndex_(-1),
     chatNpcIndex_(-1),
     splashSpawnTimer_(0.0f),
@@ -146,6 +155,7 @@ App::App()
     shakeMagnitude_(0.0f),
     shakeOffsetX_(0.0f),
     shakeOffsetY_(0.0f),
+    mikoSoundCooldown_(0.0f),
     aiRuntime_(),
     aiBackendReady_(false),
     aiBackendStatus_("AI offline") {}
@@ -154,8 +164,63 @@ App::~App() {
     Shutdown();
 }
 
+bool App::InitializeAudio() {
+    SDL_AudioSpec spec{};
+    spec.format = SDL_AUDIO_F32;
+    spec.channels = 1;
+    spec.freq = 22050;
+
+    audioStream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
+    if (!audioStream_) {
+        std::cerr << "SDL_OpenAudioDeviceStream failed: " << SDL_GetError() << '\n';
+        return false;
+    }
+
+    if (!SDL_ResumeAudioStreamDevice(audioStream_)) {
+        std::cerr << "SDL_ResumeAudioStreamDevice failed: " << SDL_GetError() << '\n';
+        SDL_DestroyAudioStream(audioStream_);
+        audioStream_ = nullptr;
+        return false;
+    }
+
+    return true;
+}
+
+void App::ShutdownAudio() {
+    if (audioStream_) {
+        SDL_DestroyAudioStream(audioStream_);
+        audioStream_ = nullptr;
+    }
+}
+
+void App::PlayMikoSound(bool happy) {
+    if (!audioStream_ || mikoSoundCooldown_ > 0.0f) {
+        return;
+    }
+
+    constexpr int sampleRate = 22050;
+    constexpr float barkDuration = 0.22f;
+    const int sampleCount = static_cast<int>(sampleRate * barkDuration);
+    std::vector<float> samples(static_cast<std::size_t>(sampleCount), 0.0f);
+
+    for (int i = 0; i < sampleCount; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(sampleRate);
+        const float phase = t / barkDuration;
+        const float envelope = std::exp(-phase * 6.0f) * std::sin(std::clamp(phase * 3.14159265f, 0.0f, 3.14159265f));
+        const float freqA = happy ? 680.0f : 520.0f;
+        const float freqB = happy ? 920.0f : 760.0f;
+        const float chirp = std::sin(t * freqA * 6.2831853f) * 0.55f;
+        const float yip = std::sin(t * (freqB + (phase * 180.0f)) * 6.2831853f) * 0.35f;
+        const float rough = std::sin(t * 180.0f * 6.2831853f) * 0.12f;
+        samples[static_cast<std::size_t>(i)] = (chirp + yip + rough) * envelope * 0.22f;
+    }
+
+    SDL_PutAudioStreamData(audioStream_, samples.data(), static_cast<int>(samples.size() * sizeof(float)));
+    mikoSoundCooldown_ = happy ? 0.34f : 0.45f;
+}
+
 bool App::Initialize() {
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
         return false;
     }
@@ -191,7 +256,12 @@ bool App::Initialize() {
     }
     SDL_SetTextureScaleMode(fogTexture_, SDL_SCALEMODE_LINEAR);
 
+    InitializeAudio();
+
     player_.SetPosition(0.0f, 0.0f);
+    player_.BeginPlay();
+    miko_.SetPosition(-12.0f, 10.0f);
+    miko_.BeginPlay();
 
     {
         std::mt19937 rng(424242U);
@@ -240,6 +310,9 @@ bool App::Initialize() {
             }
         }
     }
+    for (Animal& animal : animals_) {
+        animal.BeginPlay();
+    }
 
     npcs_.reserve(3);
     const auto placeNpc = [this](
@@ -266,6 +339,9 @@ bool App::Initialize() {
     placeNpc("LENA", "SCOUT", "PATIENCE", "SAFE PATHS", 18.0f, 6.0f, 8801U);
     placeNpc("MARA", "HERBALIST", "CARE", "QUIET GARDENS", -18.0f, 8.0f, 8802U);
     placeNpc("ORIN", "TINKER", "CURIOSITY", "BETTER MACHINES", 10.0f, -14.0f, 8803U);
+    for (NpcAI& npc : npcs_) {
+        npc.BeginPlay();
+    }
 
     hostiles_.reserve(7);
     hostiles_.emplace_back(92.0f, 44.0f, HostileKind::Zombie, 501U);
@@ -275,6 +351,9 @@ bool App::Initialize() {
     hostiles_.emplace_back(118.0f, 8.0f, HostileKind::Ghoul, 505U);
     hostiles_.emplace_back(-118.0f, 14.0f, HostileKind::Ghoul, 506U);
     hostiles_.emplace_back(0.0f, 92.0f, HostileKind::Wraith, 507U);
+    for (HostileAI& hostile : hostiles_) {
+        hostile.BeginPlay();
+    }
 
     camera_.width = static_cast<float>(kVirtualWidth);
     camera_.height = static_cast<float>(kVirtualHeight);
@@ -317,6 +396,19 @@ int App::Run() {
 }
 
 void App::Shutdown() {
+    ShutdownAudio();
+    player_.EndPlay();
+    miko_.EndPlay();
+    for (Animal& animal : animals_) {
+        animal.EndPlay();
+    }
+    for (NpcAI& npc : npcs_) {
+        npc.EndPlay();
+    }
+    for (HostileAI& hostile : hostiles_) {
+        hostile.EndPlay();
+    }
+
     aiRuntime_.Stop();
 
     if (fogTexture_) {
@@ -366,8 +458,19 @@ void App::ProcessEvents(bool& running) {
                 } else if (chatNpcIndex_ < 0 && !chatInput_.empty()) {
                     playerChatText_ = chatInput_;
                     playerChatTimer_ = 5.0f;
+                    std::optional<npc_chat_system::AiFollowupRequest> aiFollowup;
                     const npc_chat_system::CommandResult commandResult = npc_chat_system::HandlePlayerChatCommand(
-                        chatInput_, nearbyNpcIndex_, npcs_, player_, hostiles_, aiBackendReady_, aiRuntime_.GetConfig());
+                        chatInput_, nearbyNpcIndex_, npcs_, miko_, player_, hostiles_, aiBackendReady_, aiRuntime_.GetConfig(), aiFollowup);
+                    if (aiFollowup.has_value() && !pendingAiRequest_.has_value()) {
+                        pendingAiRequest_ = aiFollowup;
+                        pendingAiFollowup_ = std::async(std::launch::async, npc_chat_system::ExecuteAiFollowup, *pendingAiRequest_);
+                    } else if (aiFollowup.has_value()) {
+                        statusText_ = "AI is still thinking";
+                        statusTimer_ = 1.0f;
+                    }
+                    if (commandResult.playMikoSound) {
+                        PlayMikoSound(true);
+                    }
                     chatReply_ = commandResult.chatReply;
                     statusText_ = commandResult.statusText;
                     statusTimer_ = commandResult.statusTimer;
@@ -419,6 +522,8 @@ void App::ProcessEvents(bool& running) {
 }
 
 void App::Update(float dt) {
+    mikoSoundCooldown_ = std::max(0.0f, mikoSoundCooldown_ - dt);
+
     const bool* keys = SDL_GetKeyboardState(nullptr);
 
     const bool up = !chatMode_ && (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]);
@@ -434,6 +539,7 @@ void App::Update(float dt) {
     const bool slot3Pressed = !chatMode_ && keys[SDL_SCANCODE_3];
     const bool slot4Pressed = !chatMode_ && keys[SDL_SCANCODE_4];
     const bool slot5Pressed = !chatMode_ && keys[SDL_SCANCODE_5];
+    const bool slot6Pressed = !chatMode_ && keys[SDL_SCANCODE_6];
     const bool enterPressed = !chatMode_ && (keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER]);
     const bool undoPressed =
         !chatMode_ &&
@@ -449,6 +555,7 @@ void App::Update(float dt) {
     const float terrainMoveMultiplier = map_.MovementMultiplierAt(player_.CenterX(), player_.FeetY(), currentLayer_);
     const float moveMultiplier = terrainMoveMultiplier * (slowWalk ? 0.42f : 1.0f);
     player_.Update(dt, up, down, left, right, moveMultiplier, slowWalk);
+    player_.SetSwimming(currentLayer_ == 0 && map_.IsWaterAt(player_.CenterX(), player_.FeetY()));
 
     UpdateEffects(dt, movingInput);
 
@@ -565,6 +672,11 @@ void App::Update(float dt) {
         statusText_ = "Fishing rod equipped";
         statusTimer_ = 0.8f;
     }
+    if (slot6Pressed && !slot6PressedLast_) {
+        heldItem_ = HeldItem::Bow;
+        statusText_ = "Bow equipped";
+        statusTimer_ = 0.8f;
+    }
     if (!enterPressed) {
         suppressEnterOpen_ = false;
     }
@@ -599,10 +711,144 @@ void App::Update(float dt) {
     for (Animal& animal : animals_) {
         animal.Update(dt, map_);
     }
+    miko_.Update(dt, map_, player_.CenterX(), player_.FeetY(), movingInput);
+
+    auto spawnArrowBlood = [&](float worldX, float worldY) {
+        static std::mt19937 rng(6401U);
+        std::uniform_real_distribution<float> dir(-1.0f, 1.0f);
+        std::uniform_real_distribution<float> life(0.16f, 0.28f);
+        for (int i = 0; i < 3; ++i) {
+            BloodParticle p{};
+            p.worldX = worldX + (dir(rng) * 0.8f);
+            p.worldY = worldY - 2.0f + (dir(rng) * 0.8f);
+            p.velX = dir(rng) * 5.0f;
+            p.velY = -1.0f - (std::abs(dir(rng)) * 1.5f);
+            p.life = 0.0f;
+            p.maxLife = life(rng);
+            p.red = 78;
+            p.green = 18;
+            p.blue = 20;
+            p.size = 0.8f;
+            bloodParticles_.push_back(p);
+        }
+    };
+
+    for (ArrowShot& arrow : arrows_) {
+        arrow.life += dt;
+        arrow.worldX += arrow.velX * dt;
+        arrow.worldY += arrow.velY * dt;
+    }
+
+    for (ArrowShot& arrow : arrows_) {
+        if (arrow.life >= arrow.maxLife) {
+            continue;
+        }
+
+        if (map_.IsWaterAt(arrow.worldX, arrow.worldY) || map_.IsBlockedAt(arrow.worldX, arrow.worldY, currentLayer_)) {
+            arrow.life = arrow.maxLife;
+            continue;
+        }
+
+        bool consumed = false;
+        for (HostileAI& hostile : hostiles_) {
+            if (!hostile.IsAlive()) {
+                continue;
+            }
+            const float dx = hostile.CenterX() - arrow.worldX;
+            const float dy = hostile.CenterY() - arrow.worldY;
+            if ((dx * dx) + (dy * dy) > (7.0f * 7.0f)) {
+                continue;
+            }
+            hostile.ApplyDamage(3);
+            spawnArrowBlood(hostile.CenterX(), hostile.CenterY());
+            statusText_ = hostile.IsAlive() ? "Arrow hit a hostile" : "Arrow felled a hostile";
+            statusTimer_ = 1.2f;
+            arrow.life = arrow.maxLife;
+            consumed = true;
+            break;
+        }
+        if (consumed) {
+            continue;
+        }
+
+        for (std::size_t index = 0; index < animals_.size(); ++index) {
+            Animal& animal = animals_[index];
+            const float dx = animal.CenterX() - arrow.worldX;
+            const float dy = animal.CenterY() - arrow.worldY;
+            if ((dx * dx) + (dy * dy) > (7.0f * 7.0f)) {
+                continue;
+            }
+            harvestFly_.push_back(HarvestFly{HarvestResult::Meat, animal.CenterX(), animal.CenterY() - 4.0f, 0.0f, 0.6f});
+            statusText_ = animal.Kind() == AnimalKind::Fish ? "Arrow caught a fish" : "Arrow brought down prey";
+            statusTimer_ = 1.3f;
+            arrow.life = arrow.maxLife;
+            animals_.erase(animals_.begin() + static_cast<std::ptrdiff_t>(index));
+            consumed = true;
+            break;
+        }
+        if (consumed) {
+            continue;
+        }
+
+        for (Fence& fence : fences_) {
+            if (fence.health <= 0) {
+                continue;
+            }
+            if (arrow.worldX >= fence.x && arrow.worldX <= (fence.x + fence.width) &&
+                arrow.worldY >= fence.y && arrow.worldY <= (fence.y + fence.height)) {
+                fence.health -= 1;
+                statusText_ = "Arrow struck a fence";
+                statusTimer_ = 0.8f;
+                arrow.life = arrow.maxLife;
+                break;
+            }
+        }
+    }
+
+    arrows_.erase(
+        std::remove_if(arrows_.begin(), arrows_.end(), [](const ArrowShot& arrow) { return arrow.life >= arrow.maxLife; }),
+        arrows_.end());
 
     playerChatTimer_ = std::max(0.0f, playerChatTimer_ - dt);
     if (playerChatTimer_ == 0.0f) {
         playerChatText_.clear();
+    }
+
+    if (pendingAiRequest_.has_value() && pendingAiFollowup_.valid() &&
+        pendingAiFollowup_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        const npc_chat_system::AiFollowupResult result = pendingAiFollowup_.get();
+        if (result.ok) {
+            if (result.targetMiko) {
+                if (result.intent == "follow_player" || result.intent == "sit_down" || result.intent == "hold_position" ||
+                    result.intent == "come_to_player" || result.intent == "return_home" || result.intent == "idle") {
+                    chatReply_ = miko_.ApplyAiDirective(result.intent, result.speech, player_.CenterX(), player_.FeetY());
+                    ai_debug_log::Write("GAME_APPLY_AI target=MIKO intent=\"" + result.intent + "\" speech=\"" + result.speech + "\"");
+                } else {
+                    chatReply_ = result.speech;
+                    ai_debug_log::Write("AI_IGNORED target=MIKO reason=invalid_intent intent=\"" + result.intent + "\"");
+                }
+            } else if (result.targetNpcIndex >= 0 && result.targetNpcIndex < static_cast<int>(npcs_.size())) {
+                NpcAI& npc = npcs_[static_cast<std::size_t>(result.targetNpcIndex)];
+                if (result.intent == "follow_player" || result.intent == "hold_position" || result.intent == "come_to_player" ||
+                    result.intent == "return_home" || result.intent == "wander" || result.intent == "talk") {
+                    chatReply_ = npc.ApplyAiDirective(result.intent, result.speech, player_.CenterX(), player_.FeetY());
+                    ai_debug_log::Write("GAME_APPLY_AI target_npc=\"" + npc.Name() + "\" intent=\"" + result.intent + "\" speech=\"" + result.speech + "\"");
+                } else if (!result.speech.empty()) {
+                    npc.SetAiSpeech(result.speech);
+                    chatReply_ = result.speech;
+                    ai_debug_log::Write("AI_IGNORED target_npc=\"" + npc.Name() + "\" reason=invalid_intent intent=\"" + result.intent + "\"");
+                }
+            }
+
+            if (!chatReply_.empty()) {
+                statusText_ = "CMD OK | " + chatReply_;
+                statusTimer_ = 3.0f;
+            }
+        } else {
+            statusText_ = "AI request failed";
+            statusTimer_ = 1.6f;
+        }
+        pendingAiRequest_.reset();
     }
 
     for (SoilPlot& plot : soilPlots_) {
@@ -694,6 +940,7 @@ void App::Update(float dt) {
                     roll < 7 ? HostileKind::Marauder :
                     roll < 9 ? HostileKind::Ghoul : HostileKind::Wraith;
                 hostiles_.emplace_back(spawnX, spawnY, kind, static_cast<std::uint32_t>(9000U + SDL_GetTicks() + attempt));
+                hostiles_.back().BeginPlay();
                 statusText_ = kind == HostileKind::Zombie ? "The dead rose again"
                              : kind == HostileKind::Marauder ? "Dark raiders entered the valley"
                              : kind == HostileKind::Ghoul ? "A ghoul crawled into the light"
@@ -987,6 +1234,22 @@ void App::Update(float dt) {
                 }
             }
             statusTimer_ = 1.0f;
+        } else if (heldItem_ == HeldItem::Bow) {
+            ArrowShot arrow{};
+            const float facingY = player_.FacingY();
+            arrow.worldX = player_.CenterX() + (player_.FacingX() * 7.0f);
+            arrow.worldY = player_.CenterY() + (facingY * 7.0f);
+            arrow.velX = player_.FacingX() * 118.0f;
+            arrow.velY = facingY * 118.0f;
+            if (std::fabs(facingY) < 0.01f) {
+                arrow.velY = 0.0f;
+            }
+            arrow.life = 0.0f;
+            arrow.maxLife = 0.55f;
+            arrows_.push_back(arrow);
+            statusText_ = "Arrow fired";
+            statusTimer_ = 0.5f;
+            player_.TriggerAttack();
         } else {
             player_.TriggerAttack();
 
@@ -1217,6 +1480,7 @@ void App::Update(float dt) {
     slot3PressedLast_ = slot3Pressed;
     slot4PressedLast_ = slot4Pressed;
     slot5PressedLast_ = slot5Pressed;
+    slot6PressedLast_ = slot6Pressed;
     enterPressedLast_ = enterPressed;
     undoPressedLast_ = undoPressed;
 
@@ -1238,7 +1502,7 @@ void App::Update(float dt) {
     if (statusTimer_ > 0.0f) {
         statusTimer_ = std::max(0.0f, statusTimer_ - dt);
         if (statusTimer_ == 0.0f) {
-            statusText_ = "WASD move | Shift slow walk | 1 weapon | 2 fence | 3 soil | 4 seeds | 5 rod | J use | E rotate/talk | Ctrl+Z undo";
+            statusText_ = "WASD move | Shift slow walk | 1 weapon | 2 fence | 3 soil | 4 seeds | 5 rod | 6 bow | J use | E rotate/talk | Ctrl+Z undo";
         }
     }
     SDL_SetWindowTitle(window_, statusText_.c_str());
@@ -1248,7 +1512,8 @@ void App::Update(float dt) {
         heldItem_ == HeldItem::Fence ? Player::ToolVisual::Fence :
         heldItem_ == HeldItem::Soil ? Player::ToolVisual::Soil :
         heldItem_ == HeldItem::Seed ? Player::ToolVisual::Seed :
-                                      Player::ToolVisual::Rod
+        heldItem_ == HeldItem::Rod ? Player::ToolVisual::Rod :
+                                     Player::ToolVisual::Bow
     );
 
     const float cameraTargetX = player_.CenterX() + cameraOffsetX_;
@@ -1301,6 +1566,11 @@ void App::Render() {
             }
         }
 
+        if (miko_.FeetY() <= player_.FeetY()) {
+            miko_.DrawShadow(renderer_, renderCamera);
+            miko_.Draw(renderer_, renderCamera);
+        }
+
         for (const NpcAI& npc : npcs_) {
             if (npc.FeetY() <= player_.FeetY()) {
                 npc.DrawShadow(renderer_, renderCamera);
@@ -1321,6 +1591,11 @@ void App::Render() {
     player_.Draw(renderer_, renderCamera);
 
     if (currentLayer_ == 0) {
+        if (miko_.FeetY() > player_.FeetY()) {
+            miko_.DrawShadow(renderer_, renderCamera);
+            miko_.Draw(renderer_, renderCamera);
+        }
+
         for (const Animal& animal : animals_) {
             if (animal.FeetY() > player_.FeetY()) {
                 animal.DrawShadow(renderer_, renderCamera);
@@ -1383,7 +1658,8 @@ void App::Render() {
                          heldItem_ == HeldItem::Weapon ? "BLADE" :
                          heldItem_ == HeldItem::Fence ? "FENCE" :
                          heldItem_ == HeldItem::Soil ? "SOIL" :
-                         heldItem_ == HeldItem::Seed ? "SEED" : "ROD");
+                         heldItem_ == HeldItem::Seed ? "SEED" :
+                         heldItem_ == HeldItem::Rod ? "ROD" : "BOW");
     SDL_RenderPresent(renderer_);
 }
 
@@ -1514,6 +1790,24 @@ void App::DrawWorldEffects(const Camera2D& camera) {
         const float screenY = std::floor(b.worldY - camera.y);
         SDL_FRect bit{screenX, screenY, b.size, b.size};
         SDL_RenderFillRect(renderer_, &bit);
+    }
+
+    for (const ArrowShot& arrow : arrows_) {
+        const float screenX = std::floor(arrow.worldX - camera.x);
+        const float screenY = std::floor(arrow.worldY - camera.y);
+        const bool horizontal = std::fabs(arrow.velX) >= std::fabs(arrow.velY);
+
+        SDL_SetRenderDrawColor(renderer_, 184, 146, 92, 255);
+        SDL_FRect shaft = horizontal
+                              ? SDL_FRect{screenX - (arrow.velX >= 0.0f ? 4.0f : 1.0f), screenY, 5.0f, 1.0f}
+                              : SDL_FRect{screenX, screenY - (arrow.velY >= 0.0f ? 4.0f : 1.0f), 1.0f, 5.0f};
+        SDL_RenderFillRect(renderer_, &shaft);
+
+        SDL_SetRenderDrawColor(renderer_, 215, 220, 226, 255);
+        SDL_FRect tip = horizontal
+                            ? SDL_FRect{screenX + (arrow.velX >= 0.0f ? 1.0f : -1.0f), screenY, 1.0f, 1.0f}
+                            : SDL_FRect{screenX, screenY + (arrow.velY >= 0.0f ? 1.0f : -1.0f), 1.0f, 1.0f};
+        SDL_RenderFillRect(renderer_, &tip);
     }
 
     if (fishingCast_.active) {
@@ -1841,13 +2135,20 @@ void App::DrawFogOfWar(const Camera2D& camera, const SDL_FRect& destination) {
     };
 
     std::vector<LightSource> lights;
-    lights.reserve(1 + npcs_.size());
+    lights.reserve(2 + npcs_.size());
     lights.push_back(LightSource{
         player_.CenterX() - camera.x,
         player_.CenterY() - camera.y,
         42.0f,
         108.0f,
         1.0f
+    });
+    lights.push_back(LightSource{
+        miko_.CenterX() - camera.x,
+        miko_.CenterY() - camera.y,
+        22.0f,
+        58.0f,
+        0.58f
     });
 
     for (const NpcAI& npc : npcs_) {

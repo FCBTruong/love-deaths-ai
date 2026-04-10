@@ -167,6 +167,74 @@ void SetTerrainColor(SDL_Renderer* renderer, Terrain terrain, std::uint8_t varia
     }
 }
 
+void DrawGroundTexture(SDL_Renderer* renderer, Terrain terrain, float x, float y, float tile, std::uint32_t tileHash, float waterTime) {
+    if (terrain == Terrain::Sand) {
+        SDL_SetRenderDrawColor(renderer, 191, 172, 110, 255);
+        const float d0x = x + static_cast<float>((tileHash >> 1U) & 5U);
+        const float d0y = y + static_cast<float>((tileHash >> 4U) & 5U);
+        const float d1x = x + static_cast<float>((tileHash >> 7U) & 5U) + (tile * 0.28f);
+        const float d1y = y + static_cast<float>((tileHash >> 10U) & 5U) + (tile * 0.18f);
+        SDL_FRect detailA{d0x, d0y, 1.0f, 1.0f};
+        SDL_FRect detailB{d1x, d1y, 1.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &detailA);
+        SDL_RenderFillRect(renderer, &detailB);
+
+        SDL_SetRenderDrawColor(renderer, 226, 210, 148, 110);
+        SDL_FRect warmBand{x + tile * 0.10f, y + tile * 0.12f, tile * 0.56f, 1.0f};
+        SDL_RenderFillRect(renderer, &warmBand);
+        return;
+    }
+
+    if (terrain == Terrain::Water) {
+        const float phase = waterTime + (static_cast<float>(static_cast<int>(x / tile)) * 0.73f) + (static_cast<float>(static_cast<int>(y / tile)) * 0.41f);
+        const float rippleA = (std::sin(phase) + 1.0f) * 0.5f;
+        const float rippleB = (std::sin((phase * 1.37f) + 1.2f) + 1.0f) * 0.5f;
+
+        SDL_SetRenderDrawColor(renderer, 91, 170, 233, 120);
+        SDL_FRect waveA{x + (tile * 0.14f), y + (tile * (0.22f + (rippleA * 0.18f))), tile * 0.40f, 1.0f};
+        SDL_FRect waveB{x + (tile * 0.52f), y + (tile * (0.56f + (rippleB * 0.16f))), tile * 0.28f, 1.0f};
+        SDL_RenderFillRect(renderer, &waveA);
+        SDL_RenderFillRect(renderer, &waveB);
+
+        SDL_SetRenderDrawColor(renderer, 126, 199, 247, 86);
+        SDL_FRect shimmer{x + (tile * (0.18f + (rippleB * 0.16f))), y + (tile * (0.72f - (rippleA * 0.10f))), tile * 0.18f, 1.0f};
+        SDL_RenderFillRect(renderer, &shimmer);
+        return;
+    }
+
+    if (terrain == Terrain::Grass || terrain == Terrain::DarkGrass) {
+        const std::uint8_t bladeTint = terrain == Terrain::Grass ? 82 : 68;
+        SDL_SetRenderDrawColor(renderer, bladeTint, static_cast<std::uint8_t>(150 + ((tileHash >> 3U) & 7U)),
+            static_cast<std::uint8_t>(56 + ((tileHash >> 6U) & 7U)), 255);
+        SDL_FRect bladeA{x + tile * 0.12f, y + tile * 0.24f, 1.0f, tile * 0.22f};
+        SDL_FRect bladeB{x + tile * 0.54f, y + tile * 0.44f, 1.0f, tile * 0.20f};
+        SDL_FRect bladeC{x + tile * 0.78f, y + tile * 0.18f, 1.0f, tile * 0.18f};
+        SDL_RenderFillRect(renderer, &bladeA);
+        SDL_RenderFillRect(renderer, &bladeB);
+        SDL_RenderFillRect(renderer, &bladeC);
+
+        SDL_SetRenderDrawColor(renderer, terrain == Terrain::Grass ? 126 : 102, terrain == Terrain::Grass ? 191 : 168,
+            terrain == Terrain::Grass ? 94 : 82, 108);
+        SDL_FRect lightPatch{x + tile * 0.18f, y + tile * 0.10f, tile * 0.24f, 1.0f};
+        SDL_RenderFillRect(renderer, &lightPatch);
+        return;
+    }
+
+    if (terrain == Terrain::Dirt) {
+        SDL_SetRenderDrawColor(renderer, 118, 84, 58, 255);
+        SDL_FRect crackA{x + tile * 0.20f, y + tile * 0.24f, tile * 0.28f, 1.0f};
+        SDL_FRect crackB{x + tile * 0.56f, y + tile * 0.56f, tile * 0.22f, 1.0f};
+        SDL_RenderFillRect(renderer, &crackA);
+        SDL_RenderFillRect(renderer, &crackB);
+        SDL_SetRenderDrawColor(renderer, 154, 118, 82, 96);
+        SDL_FRect dust{x + tile * 0.12f, y + tile * 0.12f, 1.0f, 1.0f};
+        SDL_FRect dust2{x + tile * 0.82f, y + tile * 0.32f, 1.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &dust);
+        SDL_RenderFillRect(renderer, &dust2);
+    }
+}
+
+
 void DrawRampMark(SDL_Renderer* renderer, float x, float y, float tile) {
     SDL_SetRenderDrawColor(renderer, 182, 160, 112, 255);
     SDL_FRect r0{x + tile * 0.20f, y + tile * 0.75f, tile * 0.70f, tile * 0.18f};
@@ -188,46 +256,57 @@ void DrawCliffFace(SDL_Renderer* renderer, float x, float y, float tile) {
 }
 
 void DrawTree(SDL_Renderer* renderer, float x, float y, float tile) {
-    SDL_SetRenderDrawColor(renderer, 96, 63, 39, 255);
-    SDL_FRect trunk{x + tile * 0.85f, y - tile * 1.2f, tile * 0.6f, tile * 1.2f};
-    SDL_RenderFillRect(renderer, &trunk);
+    SDL_SetRenderDrawColor(renderer, 90, 58, 37, 255);
+    SDL_FRect trunkCore{x + tile * 0.98f, y - tile * 1.20f, tile * 0.34f, tile * 1.02f};
+    SDL_FRect trunkMid{x + tile * 0.90f, y - tile * 0.78f, tile * 0.50f, tile * 0.56f};
+    SDL_FRect rootL{x + tile * 0.76f, y - tile * 0.18f, tile * 0.26f, tile * 0.18f};
+    SDL_FRect rootR{x + tile * 1.28f, y - tile * 0.18f, tile * 0.26f, tile * 0.18f};
+    SDL_RenderFillRect(renderer, &trunkCore);
+    SDL_RenderFillRect(renderer, &trunkMid);
+    SDL_RenderFillRect(renderer, &rootL);
+    SDL_RenderFillRect(renderer, &rootR);
 
-    SDL_SetRenderDrawColor(renderer, 72, 46, 27, 255);
-    SDL_FRect barkShadow{x + tile * 1.20f, y - tile * 1.2f, tile * 0.16f, tile * 1.2f};
-    SDL_RenderFillRect(renderer, &barkShadow);
-
-    SDL_SetRenderDrawColor(renderer, 128, 82, 53, 255);
-    SDL_FRect barkLight{x + tile * 0.90f, y - tile * 1.1f, tile * 0.14f, tile * 1.0f};
+    SDL_SetRenderDrawColor(renderer, 118, 78, 50, 255);
+    SDL_FRect barkLight{x + tile * 0.96f, y - tile * 1.10f, tile * 0.10f, tile * 0.90f};
+    SDL_FRect barkLightLow{x + tile * 0.92f, y - tile * 0.56f, tile * 0.08f, tile * 0.26f};
     SDL_RenderFillRect(renderer, &barkLight);
+    SDL_RenderFillRect(renderer, &barkLightLow);
 
-    // Jagged canopy blocks to avoid a square silhouette.
-    SDL_SetRenderDrawColor(renderer, 29, 108, 45, 255);
-    SDL_FRect c0{x + tile * 0.42f, y - tile * 2.72f, tile * 1.34f, tile * 0.34f};
-    SDL_FRect c1{x + tile * 0.24f, y - tile * 2.36f, tile * 1.72f, tile * 0.34f};
-    SDL_FRect c2{x + tile * 0.10f, y - tile * 2.00f, tile * 2.02f, tile * 0.34f};
-    SDL_FRect c3{x + tile * 0.04f, y - tile * 1.64f, tile * 1.90f, tile * 0.34f};
-    SDL_FRect c4{x + tile * 0.20f, y - tile * 1.28f, tile * 1.62f, tile * 0.30f};
-    SDL_RenderFillRect(renderer, &c0);
-    SDL_RenderFillRect(renderer, &c1);
-    SDL_RenderFillRect(renderer, &c2);
-    SDL_RenderFillRect(renderer, &c3);
-    SDL_RenderFillRect(renderer, &c4);
+    SDL_SetRenderDrawColor(renderer, 68, 43, 28, 255);
+    SDL_FRect barkShadow{x + tile * 1.24f, y - tile * 1.10f, tile * 0.10f, tile * 0.92f};
+    SDL_FRect barkShadowLow{x + tile * 1.22f, y - tile * 0.54f, tile * 0.12f, tile * 0.28f};
+    SDL_RenderFillRect(renderer, &barkShadow);
+    SDL_RenderFillRect(renderer, &barkShadowLow);
+
+    SDL_SetRenderDrawColor(renderer, 30, 110, 46, 255);
+    SDL_FRect crownTop{x + tile * 0.70f, y - tile * 2.76f, tile * 0.92f, tile * 0.30f};
+    SDL_FRect crownUpper{x + tile * 0.34f, y - tile * 2.46f, tile * 1.66f, tile * 0.34f};
+    SDL_FRect crownLeft{x + tile * 0.10f, y - tile * 2.10f, tile * 0.76f, tile * 0.58f};
+    SDL_FRect crownCore{x + tile * 0.34f, y - tile * 2.06f, tile * 1.52f, tile * 0.86f};
+    SDL_FRect crownRight{x + tile * 1.38f, y - tile * 2.00f, tile * 0.62f, tile * 0.56f};
+    SDL_FRect crownBottom{x + tile * 0.26f, y - tile * 1.34f, tile * 1.62f, tile * 0.30f};
+    SDL_RenderFillRect(renderer, &crownTop);
+    SDL_RenderFillRect(renderer, &crownUpper);
+    SDL_RenderFillRect(renderer, &crownLeft);
+    SDL_RenderFillRect(renderer, &crownCore);
+    SDL_RenderFillRect(renderer, &crownRight);
+    SDL_RenderFillRect(renderer, &crownBottom);
 
     SDL_SetRenderDrawColor(renderer, 25, 92, 40, 255);
-    SDL_FRect shade0{x + tile * 1.10f, y - tile * 2.06f, tile * 0.88f, tile * 0.30f};
-    SDL_FRect shade1{x + tile * 1.00f, y - tile * 1.70f, tile * 0.84f, tile * 0.30f};
-    SDL_FRect shade2{x + tile * 0.94f, y - tile * 1.36f, tile * 0.72f, tile * 0.24f};
-    SDL_RenderFillRect(renderer, &shade0);
-    SDL_RenderFillRect(renderer, &shade1);
-    SDL_RenderFillRect(renderer, &shade2);
+    SDL_FRect shadeRight{x + tile * 1.20f, y - tile * 2.12f, tile * 0.62f, tile * 0.72f};
+    SDL_FRect shadeLow{x + tile * 0.94f, y - tile * 1.54f, tile * 0.70f, tile * 0.28f};
+    SDL_FRect shadeInner{x + tile * 0.48f, y - tile * 1.94f, tile * 0.48f, tile * 0.32f};
+    SDL_RenderFillRect(renderer, &shadeRight);
+    SDL_RenderFillRect(renderer, &shadeLow);
+    SDL_RenderFillRect(renderer, &shadeInner);
 
-    SDL_SetRenderDrawColor(renderer, 58, 150, 76, 255);
-    SDL_FRect light0{x + tile * 0.54f, y - tile * 2.48f, tile * 0.42f, tile * 0.20f};
-    SDL_FRect light1{x + tile * 0.36f, y - tile * 2.12f, tile * 0.34f, tile * 0.18f};
-    SDL_FRect light2{x + tile * 0.30f, y - tile * 1.74f, tile * 0.28f, tile * 0.16f};
-    SDL_RenderFillRect(renderer, &light0);
-    SDL_RenderFillRect(renderer, &light1);
-    SDL_RenderFillRect(renderer, &light2);
+    SDL_SetRenderDrawColor(renderer, 62, 154, 82, 255);
+    SDL_FRect lightTop{x + tile * 0.74f, y - tile * 2.58f, tile * 0.34f, tile * 0.18f};
+    SDL_FRect lightLeft{x + tile * 0.40f, y - tile * 2.24f, tile * 0.28f, tile * 0.18f};
+    SDL_FRect lightMid{x + tile * 0.62f, y - tile * 1.82f, tile * 0.30f, tile * 0.16f};
+    SDL_RenderFillRect(renderer, &lightTop);
+    SDL_RenderFillRect(renderer, &lightLeft);
+    SDL_RenderFillRect(renderer, &lightMid);
 }
 
 void DrawRock(SDL_Renderer* renderer, float x, float y, float tile) {
@@ -308,13 +387,43 @@ void DrawHouse(SDL_Renderer* renderer, float x, float y, float tile) {
 }
 
 void DrawFruitTree(SDL_Renderer* renderer, float x, float y, float tile, int fruitTypeCode) {
-    SDL_SetRenderDrawColor(renderer, 96, 63, 39, 255);
-    SDL_FRect trunk{x + tile * 0.86f, y - tile * 1.1f, tile * 0.55f, tile * 1.1f};
-    SDL_RenderFillRect(renderer, &trunk);
+    SDL_SetRenderDrawColor(renderer, 90, 58, 37, 255);
+    SDL_FRect trunkCore{x + tile * 0.99f, y - tile * 1.08f, tile * 0.30f, tile * 0.92f};
+    SDL_FRect trunkBase{x + tile * 0.90f, y - tile * 0.54f, tile * 0.48f, tile * 0.36f};
+    SDL_FRect rootL{x + tile * 0.78f, y - tile * 0.16f, tile * 0.22f, tile * 0.14f};
+    SDL_FRect rootR{x + tile * 1.28f, y - tile * 0.16f, tile * 0.22f, tile * 0.14f};
+    SDL_RenderFillRect(renderer, &trunkCore);
+    SDL_RenderFillRect(renderer, &trunkBase);
+    SDL_RenderFillRect(renderer, &rootL);
+    SDL_RenderFillRect(renderer, &rootR);
 
-    SDL_SetRenderDrawColor(renderer, 35, 121, 52, 255);
-    SDL_FRect crown{x + tile * 0.10f, y - tile * 2.55f, tile * 2.05f, tile * 1.55f};
-    SDL_RenderFillRect(renderer, &crown);
+    SDL_SetRenderDrawColor(renderer, 37, 124, 54, 255);
+    SDL_FRect crownTop{x + tile * 0.60f, y - tile * 2.56f, tile * 0.96f, tile * 0.28f};
+    SDL_FRect crownUpper{x + tile * 0.28f, y - tile * 2.28f, tile * 1.56f, tile * 0.34f};
+    SDL_FRect crownLeft{x + tile * 0.08f, y - tile * 1.98f, tile * 0.62f, tile * 0.54f};
+    SDL_FRect crownCore{x + tile * 0.30f, y - tile * 1.96f, tile * 1.46f, tile * 0.82f};
+    SDL_FRect crownRight{x + tile * 1.26f, y - tile * 1.92f, tile * 0.60f, tile * 0.50f};
+    SDL_FRect crownBottom{x + tile * 0.34f, y - tile * 1.24f, tile * 1.34f, tile * 0.24f};
+    SDL_RenderFillRect(renderer, &crownTop);
+    SDL_RenderFillRect(renderer, &crownUpper);
+    SDL_RenderFillRect(renderer, &crownLeft);
+    SDL_RenderFillRect(renderer, &crownCore);
+    SDL_RenderFillRect(renderer, &crownRight);
+    SDL_RenderFillRect(renderer, &crownBottom);
+
+    SDL_SetRenderDrawColor(renderer, 63, 154, 82, 255);
+    SDL_FRect lightTop{x + tile * 0.64f, y - tile * 2.38f, tile * 0.28f, tile * 0.16f};
+    SDL_FRect lightLeft{x + tile * 0.38f, y - tile * 2.04f, tile * 0.24f, tile * 0.16f};
+    SDL_FRect lightLow{x + tile * 0.56f, y - tile * 1.58f, tile * 0.24f, tile * 0.16f};
+    SDL_RenderFillRect(renderer, &lightTop);
+    SDL_RenderFillRect(renderer, &lightLeft);
+    SDL_RenderFillRect(renderer, &lightLow);
+
+    SDL_SetRenderDrawColor(renderer, 28, 98, 44, 255);
+    SDL_FRect shadeRight{x + tile * 1.12f, y - tile * 2.02f, tile * 0.52f, tile * 0.62f};
+    SDL_FRect shadeLow{x + tile * 0.90f, y - tile * 1.48f, tile * 0.54f, tile * 0.22f};
+    SDL_RenderFillRect(renderer, &shadeRight);
+    SDL_RenderFillRect(renderer, &shadeLow);
 
     if (fruitTypeCode == 0) {
         SDL_SetRenderDrawColor(renderer, 223, 64, 66, 255);
@@ -324,12 +433,14 @@ void DrawFruitTree(SDL_Renderer* renderer, float x, float y, float tile, int fru
         SDL_SetRenderDrawColor(renderer, 241, 210, 76, 255);
     }
 
-    SDL_FRect fruitA{x + tile * 0.58f, y - tile * 2.0f, tile * 0.25f, tile * 0.25f};
-    SDL_FRect fruitB{x + tile * 1.25f, y - tile * 1.72f, tile * 0.24f, tile * 0.24f};
-    SDL_FRect fruitC{x + tile * 0.92f, y - tile * 1.38f, tile * 0.24f, tile * 0.24f};
+    SDL_FRect fruitA{x + tile * 0.54f, y - tile * 1.98f, tile * 0.22f, tile * 0.22f};
+    SDL_FRect fruitB{x + tile * 1.18f, y - tile * 1.74f, tile * 0.22f, tile * 0.22f};
+    SDL_FRect fruitC{x + tile * 0.88f, y - tile * 1.42f, tile * 0.22f, tile * 0.22f};
+    SDL_FRect fruitD{x + tile * 1.06f, y - tile * 2.12f, tile * 0.18f, tile * 0.18f};
     SDL_RenderFillRect(renderer, &fruitA);
     SDL_RenderFillRect(renderer, &fruitB);
     SDL_RenderFillRect(renderer, &fruitC);
+    SDL_RenderFillRect(renderer, &fruitD);
 }
 
 enum class PropType : std::uint8_t {
@@ -356,6 +467,10 @@ void DrawBush(SDL_Renderer* renderer, float x, float y, float tile, std::uint32_
         static_cast<std::uint8_t>(71 + (tint / 3U)), 255);
     SDL_FRect top{x + tile * 0.44f, y + tile * 0.08f, tile * 1.1f, tile * 0.6f};
     SDL_RenderFillRect(renderer, &top);
+    SDL_SetRenderDrawColor(renderer, static_cast<std::uint8_t>(78 + tint), static_cast<std::uint8_t>(178 + (tint / 2U)),
+        static_cast<std::uint8_t>(86 + (tint / 3U)), 255);
+    SDL_FRect shine{x + tile * 0.58f, y + tile * 0.18f, tile * 0.42f, tile * 0.18f};
+    SDL_RenderFillRect(renderer, &shine);
 }
 
 void DrawTallGrass(SDL_Renderer* renderer, float x, float y, float tile, std::uint32_t hash) {
@@ -369,6 +484,11 @@ void DrawTallGrass(SDL_Renderer* renderer, float x, float y, float tile, std::ui
     SDL_RenderFillRect(renderer, &blade0);
     SDL_RenderFillRect(renderer, &blade1);
     SDL_RenderFillRect(renderer, &blade2);
+    SDL_SetRenderDrawColor(renderer, 90, 178, 88, 220);
+    SDL_FRect tip0{x + tile * 0.32f, blade0.y, 1.0f, 1.0f};
+    SDL_FRect tip1{x + tile * 0.66f, blade1.y, 1.0f, 1.0f};
+    SDL_RenderFillRect(renderer, &tip0);
+    SDL_RenderFillRect(renderer, &tip1);
 }
 
 void DrawFlowerPatch(SDL_Renderer* renderer, float x, float y, float tile, std::uint32_t hash) {
@@ -746,6 +866,7 @@ void TileMap::DrawGround(SDL_Renderer* renderer, const Camera2D& camera, int cur
     const int endY = static_cast<int>(std::floor((camera.y + camera.height) / static_cast<float>(tileSize_))) + 2;
 
     const float tile = static_cast<float>(tileSize_);
+    const float waterTime = static_cast<float>(SDL_GetTicks()) * 0.0016f;
 
     for (int y = startY; y < endY; ++y) {
         for (int x = startX; x < endX; ++x) {
@@ -778,23 +899,7 @@ void TileMap::DrawGround(SDL_Renderer* renderer, const Camera2D& camera, int cur
             SDL_RenderFillRect(renderer, &tileRect);
 
             const std::uint32_t tileHash = Hash32(x, y, 4242U);
-            if (mountain) {
-                SDL_SetRenderDrawColor(renderer, 123, 125, 136, 255);
-            } else if (terrain == Terrain::Water) {
-                SDL_SetRenderDrawColor(renderer, 78, 149, 219, 255);
-            } else {
-                SDL_SetRenderDrawColor(renderer, 66, 123, 53, 255);
-            }
-
-            const float d0x = tileRect.x + static_cast<float>((tileHash >> 1U) & 3U);
-            const float d0y = tileRect.y + static_cast<float>((tileHash >> 3U) & 3U);
-            const float d1x = tileRect.x + static_cast<float>((tileHash >> 5U) & 3U) + (tile * 0.35f);
-            const float d1y = tileRect.y + static_cast<float>((tileHash >> 7U) & 3U) + (tile * 0.20f);
-
-            SDL_FRect detailA{d0x, d0y, 1.0f, 1.0f};
-            SDL_FRect detailB{d1x, d1y, 1.0f, 1.0f};
-            SDL_RenderFillRect(renderer, &detailA);
-            SDL_RenderFillRect(renderer, &detailB);
+            DrawGroundTexture(renderer, terrain, tileRect.x, tileRect.y, tile, tileHash, waterTime);
 
             if (currentLayer == 0 && mountain && cliffEdge && !ramp) {
                 DrawCliffFace(renderer, tileRect.x, tileRect.y, tile);

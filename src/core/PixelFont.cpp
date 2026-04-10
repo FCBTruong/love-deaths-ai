@@ -5,87 +5,60 @@
 #include <cctype>
 
 namespace {
-void DrawDigit(SDL_Renderer* renderer, int digit, float x, float y, float s, SDL_Color color) {
-    static const int kMasks[10] = {
-        0b111101101101111,
-        0b010010010010010,
-        0b111001111100111,
-        0b111001111001111,
-        0b101101111001001,
-        0b111100111001111,
-        0b111100111101111,
-        0b111001001001001,
-        0b111101111101111,
-        0b111101111001111
-    };
+using Glyph = std::array<const char*, 5>;
 
-    const int mask = kMasks[std::clamp(digit, 0, 9)];
-    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+const Glyph& GlyphRows(char c) {
+    static const Glyph space{"0000", "0000", "0000", "0000", "0000"};
+    static const Glyph dot{"0000", "0000", "0000", "0010", "0010"};
+    static const Glyph comma{"0000", "0000", "0000", "0010", "0100"};
+    static const Glyph dash{"0000", "0000", "1110", "0000", "0000"};
+    static const Glyph colon{"0000", "0010", "0000", "0010", "0000"};
+    static const Glyph bang{"0010", "0010", "0010", "0000", "0010"};
+    static const Glyph apos{"0010", "0010", "0000", "0000", "0000"};
+    static const Glyph at{"0110", "1001", "1011", "1000", "0111"};
 
-    for (int row = 0; row < 5; ++row) {
-        for (int col = 0; col < 3; ++col) {
-            const int bit = 14 - ((row * 3) + col);
-            if (((mask >> bit) & 1) == 0) {
-                continue;
-            }
-            SDL_FRect p{x + (static_cast<float>(col) * s), y + (static_cast<float>(row) * s), s, s};
-            SDL_RenderFillRect(renderer, &p);
-        }
-    }
-}
+    static const Glyph a{"0110", "1001", "1111", "1001", "1001"};
+    static const Glyph b{"1110", "1001", "1110", "1001", "1110"};
+    static const Glyph cGlyph{"0111", "1000", "1000", "1000", "0111"};
+    static const Glyph d{"1110", "1001", "1001", "1001", "1110"};
+    static const Glyph e{"1111", "1000", "1110", "1000", "1111"};
+    static const Glyph f{"1111", "1000", "1110", "1000", "1000"};
+    static const Glyph g{"0111", "1000", "1011", "1001", "0111"};
+    static const Glyph h{"1001", "1001", "1111", "1001", "1001"};
+    static const Glyph i{"1110", "0100", "0100", "0100", "1110"};
+    static const Glyph j{"0011", "0001", "0001", "1001", "0110"};
+    static const Glyph k{"1001", "1010", "1100", "1010", "1001"};
+    static const Glyph l{"1000", "1000", "1000", "1000", "1111"};
+    static const Glyph m{"1001", "1111", "1111", "1001", "1001"};
+    static const Glyph n{"1001", "1101", "1011", "1001", "1001"};
+    static const Glyph o{"0110", "1001", "1001", "1001", "0110"};
+    static const Glyph p{"1110", "1001", "1110", "1000", "1000"};
+    static const Glyph q{"0110", "1001", "1001", "1011", "0111"};
+    static const Glyph r{"1110", "1001", "1110", "1010", "1001"};
+    static const Glyph s{"0111", "1000", "0110", "0001", "1110"};
+    static const Glyph t{"1111", "0100", "0100", "0100", "0100"};
+    static const Glyph u{"1001", "1001", "1001", "1001", "0110"};
+    static const Glyph v{"1001", "1001", "1001", "0110", "0110"};
+    static const Glyph w{"1001", "1001", "1111", "1111", "1001"};
+    static const Glyph x{"1001", "1001", "0110", "1001", "1001"};
+    static const Glyph y{"1001", "1001", "0110", "0100", "0100"};
+    static const Glyph z{"1111", "0001", "0010", "0100", "1111"};
 
-const std::array<const char*, 5>& GlyphRows(char c) {
-    static const std::array<const char*, 5> space{"000", "000", "000", "000", "000"};
-    static const std::array<const char*, 5> dot{"000", "000", "000", "010", "010"};
-    static const std::array<const char*, 5> comma{"000", "000", "000", "010", "100"};
-    static const std::array<const char*, 5> dash{"000", "000", "111", "000", "000"};
-    static const std::array<const char*, 5> colon{"000", "010", "000", "010", "000"};
-    static const std::array<const char*, 5> bang{"010", "010", "010", "000", "010"};
-    static const std::array<const char*, 5> apos{"010", "010", "000", "000", "000"};
-    static const std::array<const char*, 5> at{"111", "101", "111", "101", "110"};
-
-    static const std::array<const char*, 5> a{"010", "101", "111", "101", "101"};
-    static const std::array<const char*, 5> b{"110", "101", "110", "101", "110"};
-    static const std::array<const char*, 5> c0{"011", "100", "100", "100", "011"};
-    static const std::array<const char*, 5> d{"110", "101", "101", "101", "110"};
-    static const std::array<const char*, 5> e{"111", "100", "110", "100", "111"};
-    static const std::array<const char*, 5> f{"111", "100", "110", "100", "100"};
-    static const std::array<const char*, 5> g{"011", "100", "101", "101", "011"};
-    static const std::array<const char*, 5> h{"101", "101", "111", "101", "101"};
-    static const std::array<const char*, 5> i{"111", "010", "010", "010", "111"};
-    static const std::array<const char*, 5> j{"001", "001", "001", "101", "010"};
-    static const std::array<const char*, 5> k{"101", "101", "110", "101", "101"};
-    static const std::array<const char*, 5> l{"100", "100", "100", "100", "111"};
-    static const std::array<const char*, 5> m{"101", "111", "111", "101", "101"};
-    static const std::array<const char*, 5> n{"101", "111", "111", "111", "101"};
-    static const std::array<const char*, 5> o{"111", "101", "101", "101", "111"};
-    static const std::array<const char*, 5> p{"110", "101", "110", "100", "100"};
-    static const std::array<const char*, 5> q{"111", "101", "101", "111", "001"};
-    static const std::array<const char*, 5> r{"110", "101", "110", "101", "101"};
-    static const std::array<const char*, 5> s{"011", "100", "111", "001", "110"};
-    static const std::array<const char*, 5> t{"111", "010", "010", "010", "010"};
-    static const std::array<const char*, 5> u{"101", "101", "101", "101", "111"};
-    static const std::array<const char*, 5> v{"101", "101", "101", "101", "010"};
-    static const std::array<const char*, 5> w{"101", "101", "111", "111", "101"};
-    static const std::array<const char*, 5> x{"101", "101", "010", "101", "101"};
-    static const std::array<const char*, 5> y{"101", "101", "010", "010", "010"};
-    static const std::array<const char*, 5> z{"111", "001", "010", "100", "111"};
-
-    static const std::array<const char*, 5> n0{"111", "101", "101", "101", "111"};
-    static const std::array<const char*, 5> n1{"010", "110", "010", "010", "111"};
-    static const std::array<const char*, 5> n2{"111", "001", "111", "100", "111"};
-    static const std::array<const char*, 5> n3{"111", "001", "111", "001", "111"};
-    static const std::array<const char*, 5> n4{"101", "101", "111", "001", "001"};
-    static const std::array<const char*, 5> n5{"111", "100", "111", "001", "111"};
-    static const std::array<const char*, 5> n6{"111", "100", "111", "101", "111"};
-    static const std::array<const char*, 5> n7{"111", "001", "010", "100", "100"};
-    static const std::array<const char*, 5> n8{"111", "101", "111", "101", "111"};
-    static const std::array<const char*, 5> n9{"111", "101", "111", "001", "111"};
+    static const Glyph n0{"0110", "1001", "1001", "1001", "0110"};
+    static const Glyph n1{"0010", "0110", "0010", "0010", "0111"};
+    static const Glyph n2{"1110", "0001", "0110", "1000", "1111"};
+    static const Glyph n3{"1110", "0001", "0110", "0001", "1110"};
+    static const Glyph n4{"1001", "1001", "1111", "0001", "0001"};
+    static const Glyph n5{"1111", "1000", "1110", "0001", "1110"};
+    static const Glyph n6{"0111", "1000", "1110", "1001", "0110"};
+    static const Glyph n7{"1111", "0001", "0010", "0100", "0100"};
+    static const Glyph n8{"0110", "1001", "0110", "1001", "0110"};
+    static const Glyph n9{"0110", "1001", "0111", "0001", "1110"};
 
     switch (std::toupper(static_cast<unsigned char>(c))) {
     case 'A': return a;
     case 'B': return b;
-    case 'C': return c0;
+    case 'C': return cGlyph;
     case 'D': return d;
     case 'E': return e;
     case 'F': return f;
@@ -129,28 +102,21 @@ const std::array<const char*, 5>& GlyphRows(char c) {
     default: return space;
     }
 }
+
+constexpr float kGlyphAdvance = 5.0f;
 }
 
 namespace pixel_font {
 
 void DrawNumber(SDL_Renderer* renderer, int value, float x, float y, float scale, SDL_Color color) {
-    const int safeValue = std::max(0, value);
-    if (safeValue < 10) {
-        DrawDigit(renderer, safeValue, x, y, scale, color);
-        return;
-    }
-
-    const int tens = (safeValue / 10) % 10;
-    const int ones = safeValue % 10;
-    DrawDigit(renderer, tens, x, y, scale, color);
-    DrawDigit(renderer, ones, x + (4.0f * scale), y, scale, color);
+    DrawBitmapText(renderer, std::to_string(std::max(0, value)), x, y, scale, color);
 }
 
 float MeasureText(const std::string& text, float scale) {
     if (text.empty()) {
         return 0.0f;
     }
-    return static_cast<float>(text.size()) * (4.0f * scale) - scale;
+    return (static_cast<float>(text.size()) * kGlyphAdvance * scale) - scale;
 }
 
 void DrawBitmapText(SDL_Renderer* renderer, const std::string& text, float x, float y, float scale, SDL_Color color) {
@@ -160,7 +126,7 @@ void DrawBitmapText(SDL_Renderer* renderer, const std::string& text, float x, fl
     for (char c : text) {
         const auto& rows = GlyphRows(c);
         for (int row = 0; row < 5; ++row) {
-            for (int col = 0; col < 3; ++col) {
+            for (int col = 0; col < 4; ++col) {
                 if (rows[row][col] != '1') {
                     continue;
                 }
@@ -173,7 +139,7 @@ void DrawBitmapText(SDL_Renderer* renderer, const std::string& text, float x, fl
                 SDL_RenderFillRect(renderer, &px);
             }
         }
-        cursorX += 4.0f * scale;
+        cursorX += kGlyphAdvance * scale;
     }
 }
 

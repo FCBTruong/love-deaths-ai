@@ -6,6 +6,7 @@
 #include <random>
 
 #include "core/Camera2D.h"
+#include "game/Pawn.h"
 
 class TileMap;
 
@@ -19,7 +20,7 @@ enum class AnimalKind : std::uint8_t {
     Fish
 };
 
-class Animal {
+class Animal : public Pawn {
 public:
     Animal(float x, float y, AnimalKind kind, std::uint32_t seed);
 
@@ -28,26 +29,14 @@ public:
     void Draw(SDL_Renderer* renderer, const Camera2D& camera) const;
 
     AnimalKind Kind() const;
-    float X() const;
-    float Y() const;
-    float CenterX() const;
-    float CenterY() const;
-    float FeetY() const;
-
 private:
-    void PickNewBehavior();
+    void OnBeginPlay() override;
+    void OnEndPlay() override;
 
-    float x_;
-    float y_;
-    float width_;
-    float height_;
-    float speed_;
+    void PickNewBehavior();
 
     float dirX_;
     float dirY_;
-    float facingX_;
-
-    bool moving_;
     float behaviorTimer_;
     float animTime_;
     bool leaping_;
