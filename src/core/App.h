@@ -35,12 +35,25 @@ private:
     void Update(float dt);
     void Render();
     void DrawFogOfWar(const Camera2D& camera, const SDL_FRect& destination);
+    void DrawDamageOverlay(const SDL_FRect& destination);
     void UpdateEffects(float dt, bool moving);
     void DrawWorldEffects(const Camera2D& camera);
+    void DrawBloodEffects(const Camera2D& camera);
     void DrawHarvestFlyEffects(const Camera2D& camera, const SDL_FRect& destination);
     void DrawFences(const Camera2D& camera, bool drawBeforePlayer, float splitWorldY);
     void DrawSoilPlots(const Camera2D& camera, bool drawBeforePlayer, float splitWorldY);
     void DrawPlacementPreview(const Camera2D& camera);
+    void DrawCombatShrine(const Camera2D& camera);
+    void DrawBaseCamp(const Camera2D& camera);
+    void BeginPreparationPhase();
+    void BeginDefensePhase();
+    int CountAliveVillagers() const;
+    int CountAliveHostiles() const;
+    int TotalFoodCount() const;
+    int CountStandingFences() const;
+    void RegisterHostileDefeat();
+    std::string BuildPhaseLabel() const;
+    std::string BuildObjectiveLabel() const;
 
     static constexpr int kWindowWidth = 1280;
     static constexpr int kWindowHeight = 720;
@@ -184,6 +197,33 @@ private:
         float totalTime;
     };
 
+    enum class CyclePhase {
+        Preparation,
+        Defense
+    };
+
+    struct CombatShrine {
+        float x;
+        float y;
+        bool activeChallenge;
+        bool playerNearby;
+        int waveGoal;
+        int spawned;
+        int defeated;
+        float spawnTimer;
+        float cooldownTimer;
+    };
+
+    struct BaseCamp {
+        float x;
+        float y;
+        float width;
+        float height;
+        int health;
+        int maxHealth;
+        int tier;
+    };
+
     std::vector<WaterSplash> splashes_;
     std::vector<HarvestFly> harvestFly_;
     std::vector<ChopDebris> chopDebris_;
@@ -209,7 +249,23 @@ private:
     float shakeMagnitude_;
     float shakeOffsetX_;
     float shakeOffsetY_;
+    float damageOverlayTimer_;
+    float damageOverlayStrength_;
     float mikoSoundCooldown_;
+    CyclePhase cyclePhase_;
+    float phaseTimer_;
+    int dayNumber_;
+    int foodGoal_;
+    int fenceGoal_;
+    int nightWaveGoal_;
+    int nightSpawned_;
+    int nightDefeated_;
+    float nightBlend_;
+    float deathResetTimer_;
+    bool pendingPreparationRespawn_;
+    bool pendingDefenseReset_;
+    CombatShrine combatShrine_;
+    BaseCamp baseCamp_;
     AiRuntimeManager aiRuntime_;
     bool aiBackendReady_;
     std::string aiBackendStatus_;

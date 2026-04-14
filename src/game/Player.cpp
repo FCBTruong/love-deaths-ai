@@ -66,6 +66,17 @@ void Player::HealFull() {
 void Player::Update(float dt, bool up, bool down, bool left, bool right, float speedMultiplier, bool preserveFacing) {
     Tick(dt);
 
+    if (!IsAlive()) {
+        moving_ = false;
+        attacking_ = false;
+        attackTimer_ = 0.0f;
+        jumping_ = false;
+        jumpTimer_ = 0.0f;
+        animTime_ = 0.0f;
+        idleTime_ += dt;
+        return;
+    }
+
     float moveX = 0.0f;
     float moveY = 0.0f;
 
@@ -159,6 +170,14 @@ void Player::DrawShadow(SDL_Renderer* renderer, const Camera2D& camera) const {
     const float screenX = std::floor(x_ - camera.x);
     const float screenY = std::floor(y_ - camera.y);
 
+    if (!IsAlive()) {
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 58);
+        SDL_FRect shadow{screenX + 0.5f, screenY + 11.0f, 12.0f, 2.5f};
+        SDL_RenderFillRect(renderer, &shadow);
+        return;
+    }
+
     if (swimming_) {
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 26);
@@ -189,6 +208,37 @@ void Player::DrawShadow(SDL_Renderer* renderer, const Camera2D& camera) const {
 void Player::Draw(SDL_Renderer* renderer, const Camera2D& camera) const {
     const float screenX = std::floor(x_ - camera.x);
     const float screenY = std::floor(y_ - camera.y);
+
+    if (!IsAlive()) {
+        SDL_SetRenderDrawColor(renderer, 22, 35, 106, 255);
+        SDL_FRect torso{screenX + 1.0f, screenY + 7.0f, 10.0f, 4.0f};
+        SDL_FRect legs{screenX + 2.0f, screenY + 10.0f, 8.0f, 2.0f};
+        SDL_RenderFillRect(renderer, &torso);
+        SDL_RenderFillRect(renderer, &legs);
+
+        SDL_SetRenderDrawColor(renderer, 57, 85, 194, 255);
+        SDL_FRect coat{screenX + 2.0f, screenY + 8.0f, 6.0f, 2.0f};
+        SDL_RenderFillRect(renderer, &coat);
+
+        SDL_SetRenderDrawColor(renderer, 233, 199, 158, 255);
+        SDL_FRect head{screenX + 8.0f, screenY + 6.0f, 4.0f, 3.0f};
+        SDL_RenderFillRect(renderer, &head);
+
+        SDL_SetRenderDrawColor(renderer, 20, 14, 11, 255);
+        SDL_FRect hair{screenX + 8.0f, screenY + 6.0f, 4.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &hair);
+
+        SDL_SetRenderDrawColor(renderer, 110, 18, 20, 255);
+        SDL_FRect blood{screenX + 5.0f, screenY + 12.0f, 3.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &blood);
+
+        SDL_SetRenderDrawColor(renderer, 32, 18, 18, 255);
+        SDL_FRect eyeA{screenX + 9.0f, screenY + 7.0f, 1.0f, 1.0f};
+        SDL_FRect eyeB{screenX + 10.0f, screenY + 7.0f, 1.0f, 1.0f};
+        SDL_RenderFillRect(renderer, &eyeA);
+        SDL_RenderFillRect(renderer, &eyeB);
+        return;
+    }
 
     float jumpFactor = 0.0f;
     if (jumping_) {

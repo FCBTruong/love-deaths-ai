@@ -142,7 +142,7 @@ void DrawUI(SDL_Renderer* renderer, const SDL_FRect& destination, int virtualWid
             int appleCount, int berryCount, int pearCount, int meatCount, const std::vector<HostileAI>& hostiles,
             const std::vector<NpcAI>& npcs, int nearbyNpcIndex, bool aiBackendReady, const std::string& aiBackendStatus,
             bool chatMode, int chatNpcIndex, const std::string& chatReply, const std::string& chatInput,
-            const std::string& heldItemLabel) {
+            const std::string& heldItemLabel, const std::string& phaseLabel, const std::string& objectiveLabel) {
     const float scale = std::max(1.0f, std::floor(destination.w / static_cast<float>(virtualWidth)) * 0.5f);
 
     {
@@ -198,6 +198,27 @@ void DrawUI(SDL_Renderer* renderer, const SDL_FRect& destination, int virtualWid
                                        std::to_string(std::max(0, nearbyNpcIndex + 1)),
                                    bannerX + (4.0f * scale), bannerY + (2.0f * scale), scale,
                                    SDL_Color{248, 240, 223, 255});
+    }
+
+    {
+        const float phaseW = 154.0f * scale;
+        const float phaseH = 18.0f * scale;
+        const float phaseX = destination.x + ((destination.w - phaseW) * 0.5f);
+        const float phaseY = destination.y + (28.0f * scale);
+
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer, 17, 23, 31, 224);
+        SDL_FRect panel{phaseX, phaseY, phaseW, phaseH};
+        SDL_RenderFillRect(renderer, &panel);
+
+        SDL_SetRenderDrawColor(renderer, 218, 197, 126, 255);
+        SDL_FRect top{phaseX, phaseY, phaseW, 1.0f * scale};
+        SDL_RenderFillRect(renderer, &top);
+
+        pixel_font::DrawBitmapText(renderer, phaseLabel, phaseX + (4.0f * scale), phaseY + (3.0f * scale), scale,
+                                   SDL_Color{244, 235, 214, 255});
+        pixel_font::DrawBitmapText(renderer, objectiveLabel, phaseX + (4.0f * scale), phaseY + (10.0f * scale), scale,
+                                   SDL_Color{182, 217, 201, 255});
     }
 
     {
@@ -287,18 +308,40 @@ void DrawUI(SDL_Renderer* renderer, const SDL_FRect& destination, int virtualWid
         const float threatX = panelX;
         const float threatY = panelY + panelH + (4.0f * scale);
         const float threatW = 116.0f * scale;
-        const float threatH = 18.0f * scale;
+        const float threatH = 24.0f * scale;
         SDL_SetRenderDrawColor(renderer, 18, 16, 20, 218);
         SDL_FRect threat{threatX, threatY, threatW, threatH};
         SDL_RenderFillRect(renderer, &threat);
-        pixel_font::DrawBitmapText(renderer, "HP " + std::to_string(player.Health()), threatX + (4.0f * scale),
+        pixel_font::DrawBitmapText(renderer, "HP", threatX + (4.0f * scale),
                                    threatY + (3.0f * scale), scale, SDL_Color{247, 222, 214, 255});
-        pixel_font::DrawBitmapText(renderer, "Z " + std::to_string(zombieCount), threatX + (28.0f * scale),
-                                   threatY + (10.0f * scale), scale, SDL_Color{180, 223, 158, 255});
-        pixel_font::DrawBitmapText(renderer, "R " + std::to_string(darkRaiderCount), threatX + (54.0f * scale),
-                                   threatY + (10.0f * scale), scale, SDL_Color{232, 192, 143, 255});
-        pixel_font::DrawBitmapText(renderer, "M " + std::to_string(monsterCount), threatX + (82.0f * scale),
-                                   threatY + (10.0f * scale), scale, SDL_Color{191, 168, 239, 255});
+
+        const float hpBarX = threatX + (18.0f * scale);
+        const float hpBarY = threatY + (3.0f * scale);
+        const float hpBarW = 46.0f * scale;
+        const float hpBarH = 5.0f * scale;
+        SDL_SetRenderDrawColor(renderer, 50, 18, 22, 255);
+        SDL_FRect hpBarBg{hpBarX, hpBarY, hpBarW, hpBarH};
+        SDL_RenderFillRect(renderer, &hpBarBg);
+        SDL_SetRenderDrawColor(renderer, 201, 62, 67, 255);
+        SDL_FRect hpBarFill{hpBarX, hpBarY, hpBarW * (static_cast<float>(player.Health()) / static_cast<float>(std::max(1, player.MaxHealth()))), hpBarH};
+        SDL_RenderFillRect(renderer, &hpBarFill);
+        SDL_SetRenderDrawColor(renderer, 255, 198, 185, 255);
+        SDL_FRect hpBarTop{hpBarX, hpBarY, hpBarW, 1.0f * scale};
+        SDL_RenderFillRect(renderer, &hpBarTop);
+        pixel_font::DrawBitmapText(renderer, std::to_string(player.Health()) + "/" + std::to_string(player.MaxHealth()),
+                                   hpBarX + hpBarW + (4.0f * scale), threatY + (2.0f * scale), scale,
+                                   player.IsAlive() ? SDL_Color{247, 222, 214, 255} : SDL_Color{255, 160, 160, 255});
+
+        pixel_font::DrawBitmapText(renderer, "Z " + std::to_string(zombieCount), threatX + (4.0f * scale),
+                                   threatY + (14.0f * scale), scale, SDL_Color{180, 223, 158, 255});
+        pixel_font::DrawBitmapText(renderer, "R " + std::to_string(darkRaiderCount), threatX + (34.0f * scale),
+                                   threatY + (14.0f * scale), scale, SDL_Color{232, 192, 143, 255});
+        pixel_font::DrawBitmapText(renderer, "M " + std::to_string(monsterCount), threatX + (64.0f * scale),
+                                   threatY + (14.0f * scale), scale, SDL_Color{191, 168, 239, 255});
+        if (!player.IsAlive()) {
+            pixel_font::DrawBitmapText(renderer, "DOWN", threatX + (92.0f * scale), threatY + (14.0f * scale), scale,
+                                       SDL_Color{255, 140, 140, 255});
+        }
     }
 
     if (nearbyNpcIndex >= 0) {

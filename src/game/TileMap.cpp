@@ -567,9 +567,6 @@ PropType GetPropAt(int x, int y, Terrain terrain) {
     const float flowerRoll = Hash01(x, y, 3331U);
     const float fruitRoll = Hash01(x, y, 6601U);
 
-    if ((x % 23) == 0 && (y % 19) == 0 && CanPlaceHouse(x, y)) {
-        return PropType::House;
-    }
     if ((terrain == Terrain::Grass || terrain == Terrain::DarkGrass) && fruitRoll > 0.972f) {
         const std::uint8_t kind = static_cast<std::uint8_t>(Hash32(x, y, 9811U) % 3U);
         if (kind == 0U) {
@@ -946,8 +943,7 @@ void TileMap::DrawShadows(SDL_Renderer* renderer, const Camera2D& camera, int cu
                 continue;
             }
 
-            if (IsSoftGroundProp(prop) &&
-                OverlapsClearedGround(
+            if (OverlapsClearedGround(
                     static_cast<float>(x * tileSize_),
                     static_cast<float>(y * tileSize_),
                     tile * 2.0f,
@@ -1003,8 +999,7 @@ void TileMap::DrawProps(
                 continue;
             }
 
-            if (IsSoftGroundProp(prop) &&
-                OverlapsClearedGround(
+            if (OverlapsClearedGround(
                     static_cast<float>(x * tileSize_),
                     static_cast<float>(y * tileSize_),
                     tile * 2.0f,

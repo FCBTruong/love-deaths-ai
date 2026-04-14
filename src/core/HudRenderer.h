@@ -25,6 +25,6 @@ void DrawUI(SDL_Renderer* renderer, const SDL_FRect& destination, int virtualWid
             int appleCount, int berryCount, int pearCount, int meatCount, const std::vector<HostileAI>& hostiles,
             const std::vector<NpcAI>& npcs, int nearbyNpcIndex, bool aiBackendReady, const std::string& aiBackendStatus,
             bool chatMode, int chatNpcIndex, const std::string& chatReply, const std::string& chatInput,
-            const std::string& heldItemLabel);
+            const std::string& heldItemLabel, const std::string& phaseLabel, const std::string& objectiveLabel);
 
 }

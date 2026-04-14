@@ -155,7 +155,23 @@ App::App()
     shakeMagnitude_(0.0f),
     shakeOffsetX_(0.0f),
     shakeOffsetY_(0.0f),
+    damageOverlayTimer_(0.0f),
+    damageOverlayStrength_(0.0f),
     mikoSoundCooldown_(0.0f),
+    cyclePhase_(CyclePhase::Preparation),
+    phaseTimer_(0.0f),
+    dayNumber_(1),
+    foodGoal_(0),
+    fenceGoal_(0),
+    nightWaveGoal_(0),
+    nightSpawned_(0),
+    nightDefeated_(0),
+    nightBlend_(0.0f),
+    deathResetTimer_(0.0f),
+    pendingPreparationRespawn_(false),
+    pendingDefenseReset_(false),
+    combatShrine_{26.0f, -12.0f, false, false, 0, 0, 0, 0.0f, 4.0f},
+    baseCamp_{-20.0f, -18.0f, 40.0f, 28.0f, 20, 20, 1},
     aiRuntime_(),
     aiBackendReady_(false),
     aiBackendStatus_("AI offline") {}
@@ -343,17 +359,7 @@ bool App::Initialize() {
         npc.BeginPlay();
     }
 
-    hostiles_.reserve(7);
-    hostiles_.emplace_back(92.0f, 44.0f, HostileKind::Zombie, 501U);
-    hostiles_.emplace_back(-88.0f, -40.0f, HostileKind::Zombie, 502U);
-    hostiles_.emplace_back(104.0f, -28.0f, HostileKind::Marauder, 503U);
-    hostiles_.emplace_back(-96.0f, 52.0f, HostileKind::Marauder, 504U);
-    hostiles_.emplace_back(118.0f, 8.0f, HostileKind::Ghoul, 505U);
-    hostiles_.emplace_back(-118.0f, 14.0f, HostileKind::Ghoul, 506U);
-    hostiles_.emplace_back(0.0f, 92.0f, HostileKind::Wraith, 507U);
-    for (HostileAI& hostile : hostiles_) {
-        hostile.BeginPlay();
-    }
+    hostiles_.reserve(16);
 
     camera_.width = static_cast<float>(kVirtualWidth);
     camera_.height = static_cast<float>(kVirtualHeight);
@@ -370,6 +376,8 @@ bool App::Initialize() {
     } else {
         aiBackendStatus_ = "AI missing: install Ollama or bundle llama-server";
     }
+
+    BeginDefensePhase();
 
     SDL_SetWindowTitle(window_, statusText_.c_str());
 
@@ -521,7 +529,253 @@ void App::ProcessEvents(bool& running) {
     }
 }
 
+int App::CountAliveVillagers() const {
+    int alive = 0;
+    for (const NpcAI& npc : npcs_) {
+        if (npc.IsAlive()) {
+            ++alive;
+        }
+    }
+    return alive;
+}
+
+int App::CountAliveHostiles() const {
+    int alive = 0;
+    for (const HostileAI& hostile : hostiles_) {
+        if (hostile.IsAlive()) {
+            ++alive;
+        }
+    }
+    return alive;
+}
+
+int App::TotalFoodCount() const {
+    return appleCount_ + berryCount_ + pearCount_ + meatCount_;
+}
+
+int App::CountStandingFences() const {
+    int count = 0;
+    for (const Fence& fence : fences_) {
+        if (fence.health > 0) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+void App::RegisterHostileDefeat() {
+    if (cyclePhase_ == CyclePhase::Defense) {
+        ++nightDefeated_;
+    }
+    if (combatShrine_.activeChallenge) {
+        ++combatShrine_.defeated;
+    }
+}
+
+void App::DrawBaseCamp(const Camera2D& camera) {
+    if (currentLayer_ != 0) {
+        return;
+    }
+
+    const float screenX = std::floor(baseCamp_.x - camera.x);
+    const float screenY = std::floor(baseCamp_.y - camera.y);
+    const float pulse = 0.82f + (0.18f * std::sin(fogAnimTime_ * 4.0f));
+
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 48);
+    SDL_FRect zoneShadow{screenX - 8.0f, screenY + baseCamp_.height - 1.0f, baseCamp_.width + 16.0f, 6.0f};
+    SDL_RenderFillRect(renderer_, &zoneShadow);
+
+    SDL_SetRenderDrawColor(renderer_, 61, 73, 56, 74);
+    SDL_FRect zone{screenX - 10.0f, screenY - 10.0f, baseCamp_.width + 20.0f, baseCamp_.height + 20.0f};
+    SDL_RenderFillRect(renderer_, &zone);
+
+    SDL_SetRenderDrawColor(renderer_, 118, 95, 64, 255);
+    SDL_FRect ground{screenX, screenY, baseCamp_.width, baseCamp_.height};
+    SDL_RenderFillRect(renderer_, &ground);
+
+    SDL_SetRenderDrawColor(renderer_, 149, 122, 82, 255);
+    SDL_FRect groundTop{screenX, screenY, baseCamp_.width, 2.0f};
+    SDL_RenderFillRect(renderer_, &groundTop);
+
+    SDL_SetRenderDrawColor(renderer_, 80, 58, 38, 255);
+    SDL_FRect barricadeTop{screenX + 3.0f, screenY - 2.0f, baseCamp_.width - 6.0f, 3.0f};
+    SDL_FRect barricadeBottomL{screenX + 2.0f, screenY + baseCamp_.height - 1.0f, 13.0f, 3.0f};
+    SDL_FRect barricadeBottomR{screenX + baseCamp_.width - 15.0f, screenY + baseCamp_.height - 1.0f, 13.0f, 3.0f};
+    SDL_FRect barricadeLeft{screenX - 2.0f, screenY + 3.0f, 3.0f, baseCamp_.height - 6.0f};
+    SDL_FRect barricadeRight{screenX + baseCamp_.width - 1.0f, screenY + 3.0f, 3.0f, baseCamp_.height - 6.0f};
+    SDL_RenderFillRect(renderer_, &barricadeTop);
+    SDL_RenderFillRect(renderer_, &barricadeBottomL);
+    SDL_RenderFillRect(renderer_, &barricadeBottomR);
+    SDL_RenderFillRect(renderer_, &barricadeLeft);
+    SDL_RenderFillRect(renderer_, &barricadeRight);
+
+    SDL_SetRenderDrawColor(renderer_, 118, 87, 53, 255);
+    for (int i = 0; i < 6; ++i) {
+        SDL_FRect spike{screenX + 4.0f + (i * 6.0f), screenY - 4.0f, 2.0f, 3.0f};
+        SDL_RenderFillRect(renderer_, &spike);
+    }
+
+    SDL_SetRenderDrawColor(renderer_, 204, 159, 96, 255);
+    SDL_FRect commandRoof{screenX + 13.0f, screenY + 4.0f, 14.0f, 6.0f};
+    SDL_RenderFillRect(renderer_, &commandRoof);
+    SDL_SetRenderDrawColor(renderer_, 96, 60, 39, 255);
+    SDL_FRect commandBody{screenX + 15.0f, screenY + 10.0f, 10.0f, 9.0f};
+    SDL_RenderFillRect(renderer_, &commandBody);
+    SDL_SetRenderDrawColor(renderer_, 132, 95, 60, 255);
+    SDL_FRect commandLight{screenX + 15.0f, screenY + 10.0f, 10.0f, 2.0f};
+    SDL_RenderFillRect(renderer_, &commandLight);
+
+    SDL_SetRenderDrawColor(renderer_, 114, 80, 48, 255);
+    SDL_FRect stockpile{screenX + 5.0f, screenY + 12.0f, 8.0f, 7.0f};
+    SDL_FRect stockpile2{screenX + 28.0f, screenY + 10.0f, 6.0f, 8.0f};
+    SDL_RenderFillRect(renderer_, &stockpile);
+    SDL_RenderFillRect(renderer_, &stockpile2);
+
+    SDL_SetRenderDrawColor(renderer_, 188, 145, 86, 255);
+    SDL_FRect crateA{screenX + 7.0f, screenY + 9.0f, 4.0f, 4.0f};
+    SDL_FRect crateB{screenX + 30.0f, screenY + 8.0f, 3.0f, 3.0f};
+    SDL_FRect crateC{screenX + 31.0f, screenY + 17.0f, 3.0f, 3.0f};
+    SDL_RenderFillRect(renderer_, &crateA);
+    SDL_RenderFillRect(renderer_, &crateB);
+    SDL_RenderFillRect(renderer_, &crateC);
+
+    SDL_SetRenderDrawColor(renderer_, 88, 53, 36, 255);
+    SDL_FRect gateL{screenX + 16.0f, screenY + baseCamp_.height - 1.0f, 3.0f, 4.0f};
+    SDL_FRect gateR{screenX + 21.0f, screenY + baseCamp_.height - 1.0f, 3.0f, 4.0f};
+    SDL_RenderFillRect(renderer_, &gateL);
+    SDL_RenderFillRect(renderer_, &gateR);
+
+    SDL_SetRenderDrawColor(renderer_, 255, 166, 72, static_cast<Uint8>(170.0f * pulse));
+    SDL_FRect fireCore{screenX + 19.0f, screenY + 16.0f, 2.0f, 3.0f};
+    SDL_RenderFillRect(renderer_, &fireCore);
+    SDL_SetRenderDrawColor(renderer_, 255, 222, 150, static_cast<Uint8>(128.0f * pulse));
+    SDL_FRect fireGlow{screenX + 18.0f, screenY + 15.0f, 4.0f, 4.0f};
+    SDL_RenderFillRect(renderer_, &fireGlow);
+
+    const float hpRatio = static_cast<float>(std::max(0, baseCamp_.health)) / static_cast<float>(std::max(1, baseCamp_.maxHealth));
+    SDL_SetRenderDrawColor(renderer_, 26, 18, 16, 220);
+    SDL_FRect hpBg{screenX + 8.0f, screenY - 8.0f, 24.0f, 3.0f};
+    SDL_RenderFillRect(renderer_, &hpBg);
+    SDL_SetRenderDrawColor(renderer_, 196, 78, 66, 255);
+    SDL_FRect hpFill{screenX + 8.0f, screenY - 8.0f, 24.0f * hpRatio, 3.0f};
+    SDL_RenderFillRect(renderer_, &hpFill);
+}
+
+void App::BeginPreparationPhase() {
+    cyclePhase_ = CyclePhase::Defense;
+    phaseTimer_ = 0.0f;
+    foodGoal_ = 0;
+    fenceGoal_ = 0;
+    nightSpawned_ = 0;
+    nightDefeated_ = 0;
+    deathResetTimer_ = 0.0f;
+    pendingPreparationRespawn_ = false;
+    pendingDefenseReset_ = false;
+    baseCamp_.health = baseCamp_.maxHealth;
+    combatShrine_.activeChallenge = false;
+    combatShrine_.spawned = 0;
+    combatShrine_.defeated = 0;
+    combatShrine_.spawnTimer = 0.0f;
+
+    player_.HealFull();
+    for (NpcAI& npc : npcs_) {
+        npc.Restore();
+    }
+
+    hostiles_.clear();
+    fishingCast_.active = false;
+
+    statusText_ = "Endless night: hold the camp";
+    statusTimer_ = 3.0f;
+}
+
+void App::BeginDefensePhase() {
+    cyclePhase_ = CyclePhase::Defense;
+    phaseTimer_ = 0.0f;
+    nightWaveGoal_ = 999999;
+    nightSpawned_ = 0;
+    nightDefeated_ = 0;
+    hostileSpawnTimer_ = 0.25f;
+    deathResetTimer_ = 0.0f;
+    pendingPreparationRespawn_ = false;
+    pendingDefenseReset_ = false;
+    baseCamp_.health = baseCamp_.maxHealth;
+    combatShrine_.activeChallenge = false;
+    combatShrine_.spawned = 0;
+    combatShrine_.defeated = 0;
+    combatShrine_.spawnTimer = 0.0f;
+
+    statusText_ = "Endless night: protect the war camp";
+    statusTimer_ = 3.0f;
+}
+
+std::string App::BuildPhaseLabel() const {
+    if (combatShrine_.activeChallenge) {
+        return "COMBAT SHRINE  " + std::to_string(combatShrine_.defeated) + "/" + std::to_string(combatShrine_.waveGoal);
+    }
+    return "ENDLESS NIGHT  WAVE " + std::to_string(std::max(1, dayNumber_));
+}
+
+std::string App::BuildObjectiveLabel() const {
+    if (combatShrine_.activeChallenge) {
+        return "HOLD GROUND  LIVE HOSTILES " + std::to_string(CountAliveHostiles());
+    }
+    if (combatShrine_.playerNearby && combatShrine_.cooldownTimer <= 0.0f) {
+        return "PRESS E AT SHRINE FOR A QUICK FIGHT";
+    }
+    return "HOSTILES " + std::to_string(CountAliveHostiles()) +
+           "  CAMP " + std::to_string(std::max(0, baseCamp_.health)) + "/" + std::to_string(baseCamp_.maxHealth) +
+           "  FOOD " + std::to_string(TotalFoodCount());
+}
+
+void App::DrawCombatShrine(const Camera2D& camera) {
+    if (currentLayer_ != 0) {
+        return;
+    }
+
+    const float screenX = std::floor(combatShrine_.x - camera.x);
+    const float screenY = std::floor(combatShrine_.y - camera.y);
+    const bool glowing = combatShrine_.activeChallenge || combatShrine_.cooldownTimer <= 0.0f;
+
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 52);
+    SDL_FRect shadow{screenX - 4.0f, screenY + 14.0f, 18.0f, 3.0f};
+    SDL_RenderFillRect(renderer_, &shadow);
+
+    SDL_SetRenderDrawColor(renderer_, 76, 62, 78, 255);
+    SDL_FRect base{screenX, screenY + 7.0f, 10.0f, 8.0f};
+    SDL_RenderFillRect(renderer_, &base);
+
+    SDL_SetRenderDrawColor(renderer_, 112, 90, 118, 255);
+    SDL_FRect cap{screenX + 1.0f, screenY + 4.0f, 8.0f, 4.0f};
+    SDL_RenderFillRect(renderer_, &cap);
+
+    SDL_SetRenderDrawColor(renderer_, 54, 38, 61, 255);
+    SDL_FRect core{screenX + 3.0f, screenY, 4.0f, 5.0f};
+    SDL_RenderFillRect(renderer_, &core);
+
+    if (glowing) {
+        const Uint8 alpha = combatShrine_.activeChallenge ? 210 : 155;
+        SDL_SetRenderDrawColor(renderer_, 255, 182, 92, alpha);
+        SDL_FRect flame{screenX + 4.0f, screenY + 1.0f, 2.0f, 3.0f};
+        SDL_RenderFillRect(renderer_, &flame);
+        SDL_SetRenderDrawColor(renderer_, 255, 226, 161, alpha);
+        SDL_FRect spark{screenX + 4.0f, screenY, 1.0f, 1.0f};
+        SDL_RenderFillRect(renderer_, &spark);
+    }
+}
+
 void App::Update(float dt) {
+    const float targetNightBlend = 1.0f;
+    const float blendSpeed = 0.10f;
+    if (nightBlend_ < targetNightBlend) {
+        nightBlend_ = std::min(targetNightBlend, nightBlend_ + (dt * blendSpeed));
+    } else if (nightBlend_ > targetNightBlend) {
+        nightBlend_ = std::max(targetNightBlend, nightBlend_ - (dt * blendSpeed));
+    }
+
     mikoSoundCooldown_ = std::max(0.0f, mikoSoundCooldown_ - dt);
 
     const bool* keys = SDL_GetKeyboardState(nullptr);
@@ -716,19 +970,19 @@ void App::Update(float dt) {
     auto spawnArrowBlood = [&](float worldX, float worldY) {
         static std::mt19937 rng(6401U);
         std::uniform_real_distribution<float> dir(-1.0f, 1.0f);
-        std::uniform_real_distribution<float> life(0.16f, 0.28f);
-        for (int i = 0; i < 3; ++i) {
+        std::uniform_real_distribution<float> life(0.28f, 0.48f);
+        for (int i = 0; i < 5; ++i) {
             BloodParticle p{};
-            p.worldX = worldX + (dir(rng) * 0.8f);
-            p.worldY = worldY - 2.0f + (dir(rng) * 0.8f);
-            p.velX = dir(rng) * 5.0f;
-            p.velY = -1.0f - (std::abs(dir(rng)) * 1.5f);
+            p.worldX = worldX + (dir(rng) * 1.4f);
+            p.worldY = worldY - 2.0f + (dir(rng) * 1.2f);
+            p.velX = dir(rng) * 9.0f;
+            p.velY = -2.0f - (std::abs(dir(rng)) * 2.6f);
             p.life = 0.0f;
             p.maxLife = life(rng);
             p.red = 78;
             p.green = 18;
             p.blue = 20;
-            p.size = 0.8f;
+            p.size = 1.4f;
             bloodParticles_.push_back(p);
         }
     };
@@ -760,6 +1014,9 @@ void App::Update(float dt) {
                 continue;
             }
             hostile.ApplyDamage(3);
+            if (!hostile.IsAlive()) {
+                RegisterHostileDefeat();
+            }
             spawnArrowBlood(hostile.CenterX(), hostile.CenterY());
             statusText_ = hostile.IsAlive() ? "Arrow hit a hostile" : "Arrow felled a hostile";
             statusTimer_ = 1.2f;
@@ -812,6 +1069,61 @@ void App::Update(float dt) {
     playerChatTimer_ = std::max(0.0f, playerChatTimer_ - dt);
     if (playerChatTimer_ == 0.0f) {
         playerChatText_.clear();
+    }
+
+    if (deathResetTimer_ > 0.0f) {
+        deathResetTimer_ = std::max(0.0f, deathResetTimer_ - dt);
+        if (deathResetTimer_ == 0.0f) {
+            if (pendingPreparationRespawn_) {
+                pendingPreparationRespawn_ = false;
+                combatShrine_.activeChallenge = false;
+                combatShrine_.spawned = 0;
+                combatShrine_.defeated = 0;
+                combatShrine_.spawnTimer = 0.0f;
+                hostiles_.clear();
+                player_.SetPosition(0.0f, 0.0f);
+                player_.HealFull();
+                statusText_ = "You wake at the village fire";
+                statusTimer_ = 1.6f;
+            } else if (pendingDefenseReset_) {
+                pendingDefenseReset_ = false;
+                appleCount_ = std::max(0, appleCount_ - 1);
+                berryCount_ = std::max(0, berryCount_ - 1);
+                pearCount_ = std::max(0, pearCount_ - 1);
+                meatCount_ = std::max(0, meatCount_ - 1);
+                ++dayNumber_;
+                BeginDefensePhase();
+                player_.SetPosition(0.0f, 0.0f);
+                statusText_ = "You were dragged down. The camp fights on";
+                statusTimer_ = 2.6f;
+            }
+        }
+    }
+
+    combatShrine_.cooldownTimer = std::max(0.0f, combatShrine_.cooldownTimer - dt);
+    const float shrineDx = player_.CenterX() - (combatShrine_.x + 5.0f);
+    const float shrineDy = player_.FeetY() - (combatShrine_.y + 15.0f);
+    combatShrine_.playerNearby = currentLayer_ == 0 && ((shrineDx * shrineDx) + (shrineDy * shrineDy) <= (26.0f * 26.0f));
+    if (combatShrine_.activeChallenge) {
+        combatShrine_.spawnTimer = std::max(0.0f, combatShrine_.spawnTimer - dt);
+    }
+
+    if (!player_.IsAlive() && !pendingDefenseReset_) {
+        pendingDefenseReset_ = true;
+        deathResetTimer_ = 1.2f;
+        statusText_ = "You were brought down";
+        statusTimer_ = 1.2f;
+    }
+
+    if (CountAliveVillagers() == 0 || baseCamp_.health <= 0) {
+        appleCount_ = std::max(0, appleCount_ - 1);
+        berryCount_ = std::max(0, berryCount_ - 1);
+        pearCount_ = std::max(0, pearCount_ - 1);
+        meatCount_ = std::max(0, meatCount_ - 1);
+        ++dayNumber_;
+        BeginDefensePhase();
+        statusText_ = "The war camp fell. Hold the next line";
+        statusTimer_ = 2.6f;
     }
 
     if (pendingAiRequest_.has_value() && pendingAiFollowup_.valid() &&
@@ -892,34 +1204,61 @@ void App::Update(float dt) {
     auto spawnBloodBurst = [&](float worldX, float worldY, bool heavy) {
         static std::mt19937 rng(8401U);
         std::uniform_real_distribution<float> dir(-1.0f, 1.0f);
-        std::uniform_real_distribution<float> life(0.18f, 0.36f);
-        const int count = heavy ? 6 : 3;
+        std::uniform_real_distribution<float> life(0.30f, 0.55f);
+        const int count = heavy ? 10 : 6;
 
         for (int i = 0; i < count; ++i) {
             BloodParticle p{};
-            p.worldX = worldX + (dir(rng) * 1.2f);
-            p.worldY = worldY - 4.0f + (dir(rng) * 1.0f);
-            p.velX = dir(rng) * (heavy ? 8.0f : 4.0f);
-            p.velY = -1.5f - (std::abs(dir(rng)) * (heavy ? 4.0f : 2.0f));
+            p.worldX = worldX + (dir(rng) * 1.8f);
+            p.worldY = worldY - 4.0f + (dir(rng) * 1.4f);
+            p.velX = dir(rng) * (heavy ? 14.0f : 8.0f);
+            p.velY = -2.4f - (std::abs(dir(rng)) * (heavy ? 5.2f : 3.0f));
             p.life = 0.0f;
             p.maxLife = life(rng);
             p.red = static_cast<std::uint8_t>(78 + (i % 2) * 7);
             p.green = 18;
             p.blue = 20;
-            p.size = heavy ? 1.0f : 0.8f;
+            p.size = heavy ? 1.8f : 1.4f;
             bloodParticles_.push_back(p);
         }
     };
 
     {
-        int liveHostiles = 0;
-        for (const HostileAI& hostile : hostiles_) {
-            if (hostile.IsAlive()) {
-                ++liveHostiles;
+        const int liveHostiles = CountAliveHostiles();
+
+        if (combatShrine_.activeChallenge &&
+            combatShrine_.spawnTimer <= 0.0f &&
+            combatShrine_.spawned < combatShrine_.waveGoal &&
+            liveHostiles < 8) {
+            static std::mt19937 shrineRng(77891U);
+            std::uniform_real_distribution<float> angle(0.0f, 6.2831853f);
+            std::uniform_real_distribution<float> radius(28.0f, 44.0f);
+            std::uniform_int_distribution<int> kindRoll(0, 7);
+
+            for (int attempt = 0; attempt < 14; ++attempt) {
+                const float a = angle(shrineRng);
+                const float r = radius(shrineRng);
+                const float spawnX = player_.CenterX() + (std::cos(a) * r);
+                const float spawnY = player_.CenterY() + (std::sin(a) * r);
+                if (map_.IsWaterAt(spawnX, spawnY) || map_.IsBlockedAt(spawnX, spawnY, 0)) {
+                    continue;
+                }
+
+                const int roll = kindRoll(shrineRng);
+                const HostileKind kind =
+                    roll < 4 ? HostileKind::Zombie :
+                    roll < 6 ? HostileKind::Marauder :
+                    roll < 7 ? HostileKind::Ghoul : HostileKind::Wraith;
+                hostiles_.emplace_back(spawnX, spawnY, kind, static_cast<std::uint32_t>(70000U + SDL_GetTicks() + attempt));
+                hostiles_.back().BeginPlay();
+                ++combatShrine_.spawned;
+                combatShrine_.spawnTimer = 0.8f;
+                break;
             }
         }
 
-        if (hostileSpawnTimer_ <= 0.0f && liveHostiles < 12) {
+        if (hostileSpawnTimer_ <= 0.0f &&
+            liveHostiles < std::min(5 + dayNumber_, 16)) {
             static std::mt19937 rng(44021U);
             std::uniform_real_distribution<float> angle(0.0f, 6.2831853f);
             std::uniform_real_distribution<float> radius(76.0f, 118.0f);
@@ -941,12 +1280,13 @@ void App::Update(float dt) {
                     roll < 9 ? HostileKind::Ghoul : HostileKind::Wraith;
                 hostiles_.emplace_back(spawnX, spawnY, kind, static_cast<std::uint32_t>(9000U + SDL_GetTicks() + attempt));
                 hostiles_.back().BeginPlay();
+                ++nightSpawned_;
                 statusText_ = kind == HostileKind::Zombie ? "The dead rose again"
                              : kind == HostileKind::Marauder ? "Dark raiders entered the valley"
                              : kind == HostileKind::Ghoul ? "A ghoul crawled into the light"
                                                           : "A wraith slipped from the dark";
-                statusTimer_ = 1.2f;
-                hostileSpawnTimer_ = 2.8f;
+                statusTimer_ = 1.0f;
+                hostileSpawnTimer_ = std::max(0.45f, 1.6f - (static_cast<float>(std::min(dayNumber_, 8)) * 0.08f));
                 break;
             }
         }
@@ -957,7 +1297,14 @@ void App::Update(float dt) {
         const float hostilePrevY = hostile.Y();
         float bestX = player_.CenterX();
         float bestY = player_.FeetY();
-        bool hasTarget = player_.IsAlive();
+        const float baseTargetX = baseCamp_.x + (baseCamp_.width * 0.5f);
+        const float baseTargetY = baseCamp_.y + baseCamp_.height;
+        const bool nightRaid = true;
+        bool hasTarget = nightRaid || player_.IsAlive();
+        if (nightRaid) {
+            bestX = baseTargetX;
+            bestY = baseTargetY;
+        }
         float bestDistSq = hasTarget ? ((hostile.CenterX() - bestX) * (hostile.CenterX() - bestX)) +
                                            ((hostile.FeetY() - bestY) * (hostile.FeetY() - bestY))
                                      : 999999.0f;
@@ -1015,12 +1362,48 @@ void App::Update(float dt) {
             continue;
         }
 
+        if (nightRaid && hostile.IsReadyToAttack(baseTargetX, baseTargetY)) {
+            hostile.ResetAttackCooldown();
+            const int structureDamage =
+                hostile.Kind() == HostileKind::Zombie ? 1 :
+                hostile.Kind() == HostileKind::Marauder ? 2 :
+                hostile.Kind() == HostileKind::Ghoul ? 3 : 1;
+            baseCamp_.health = std::max(0, baseCamp_.health - structureDamage);
+
+            if (hostile.Kind() == HostileKind::Marauder) {
+                if (meatCount_ > 0) {
+                    --meatCount_;
+                    statusText_ = "Raiders stole meat from the camp";
+                } else if (pearCount_ > 0) {
+                    --pearCount_;
+                    statusText_ = "Raiders stole pears from the camp";
+                } else if (berryCount_ > 0) {
+                    --berryCount_;
+                    statusText_ = "Raiders stole berries from the camp";
+                } else if (appleCount_ > 0) {
+                    --appleCount_;
+                    statusText_ = "Raiders stole apples from the camp";
+                } else {
+                    statusText_ = "Raiders tore through the stockpile";
+                }
+            } else {
+                statusText_ = baseCamp_.health > 0 ? "The camp is under attack" : "The camp was overrun";
+            }
+            statusTimer_ = 1.2f;
+            continue;
+        }
+
         if (player_.IsAlive() && hostile.IsReadyToAttack(player_.CenterX(), player_.FeetY())) {
             const int hostileDamage =
                 hostile.Kind() == HostileKind::Zombie ? 1 :
                 hostile.Kind() == HostileKind::Marauder ? 2 :
                 hostile.Kind() == HostileKind::Ghoul ? 3 : 1;
             player_.ApplyDamage(hostileDamage);
+            damageOverlayTimer_ = std::max(damageOverlayTimer_, 0.42f);
+            damageOverlayStrength_ = std::clamp(
+                std::max(damageOverlayStrength_, 0.45f + (static_cast<float>(hostileDamage) * 0.12f)),
+                0.0f,
+                1.0f);
             spawnBloodBurst(player_.CenterX(), player_.CenterY(), hostile.Kind() == HostileKind::Ghoul);
             hostile.ResetAttackCooldown();
 
@@ -1076,6 +1459,18 @@ void App::Update(float dt) {
     }
     fences_.erase(std::remove_if(fences_.begin(), fences_.end(), [](const Fence& fence) { return fence.health <= 0; }), fences_.end());
 
+    if (combatShrine_.activeChallenge &&
+        combatShrine_.spawned >= combatShrine_.waveGoal &&
+        CountAliveHostiles() == 0) {
+        combatShrine_.activeChallenge = false;
+        appleCount_ += 1;
+        berryCount_ += 1;
+        meatCount_ += 2;
+        player_.HealFull();
+        statusText_ = "Shrine cleared. You earned supplies and caught your breath";
+        statusTimer_ = 3.0f;
+    }
+
     if (chatMode_ && chatNpcIndex_ >= 0 &&
         !npcs_[static_cast<std::size_t>(chatNpcIndex_)].IsPlayerNear(player_.CenterX(), player_.FeetY())) {
         chatMode_ = false;
@@ -1090,7 +1485,31 @@ void App::Update(float dt) {
         statusTimer_ = 0.2f;
     }
 
-    if (talkPressed && !talkPressedLast_ && heldItem_ == HeldItem::Weapon && nearbyNpcIndex_ >= 0) {
+    if (heldItem_ == HeldItem::Weapon &&
+        nearbyNpcIndex_ < 0 &&
+        combatShrine_.playerNearby &&
+        !combatShrine_.activeChallenge &&
+        combatShrine_.cooldownTimer <= 0.0f &&
+        statusTimer_ <= 0.0f) {
+        statusText_ = "Press E to awaken the combat shrine";
+        statusTimer_ = 0.2f;
+    }
+
+    if (talkPressed && !talkPressedLast_ &&
+        heldItem_ == HeldItem::Weapon &&
+        nearbyNpcIndex_ < 0 &&
+        combatShrine_.playerNearby &&
+        !combatShrine_.activeChallenge &&
+        combatShrine_.cooldownTimer <= 0.0f) {
+        combatShrine_.activeChallenge = true;
+        combatShrine_.waveGoal = 5 + std::min(dayNumber_, 4);
+        combatShrine_.spawned = 0;
+        combatShrine_.defeated = 0;
+        combatShrine_.spawnTimer = 0.15f;
+        combatShrine_.cooldownTimer = 18.0f;
+        statusText_ = "The shrine awakens. Hold your ground";
+        statusTimer_ = 2.2f;
+    } else if (talkPressed && !talkPressedLast_ && heldItem_ == HeldItem::Weapon && nearbyNpcIndex_ >= 0) {
         chatMode_ = true;
         chatNpcIndex_ = nearbyNpcIndex_;
         chatInput_.clear();
@@ -1366,6 +1785,9 @@ void App::Update(float dt) {
                 hitY = hostile.CenterY();
                 const HostileKind hostileKind = hostile.Kind();
                 hostile.ApplyDamage(2);
+                if (!hostile.IsAlive()) {
+                    RegisterHostileDefeat();
+                }
                 spawnBurst(
                     hitX,
                     hitY,
@@ -1536,7 +1958,11 @@ void App::Update(float dt) {
 void App::Render() {
     SDL_SetRenderTarget(renderer_, frameTexture_);
 
-    SDL_SetRenderDrawColor(renderer_, 148, 207, 255, 255);
+    const float skyBlend = nightBlend_ * nightBlend_ * (3.0f - (2.0f * nightBlend_));
+    const Uint8 skyR = static_cast<Uint8>(std::lround(148.0f + ((36.0f - 148.0f) * skyBlend)));
+    const Uint8 skyG = static_cast<Uint8>(std::lround(207.0f + ((56.0f - 207.0f) * skyBlend)));
+    const Uint8 skyB = static_cast<Uint8>(std::lround(255.0f + ((88.0f - 255.0f) * skyBlend)));
+    SDL_SetRenderDrawColor(renderer_, skyR, skyG, skyB, 255);
     SDL_RenderClear(renderer_);
 
     Camera2D renderCamera = camera_;
@@ -1546,16 +1972,24 @@ void App::Render() {
     renderCamera.y = std::floor(renderCamera.y);
 
     std::vector<SDL_FRect> clearedGround;
-    clearedGround.reserve(soilPlots_.size());
+    clearedGround.reserve(soilPlots_.size() + 1U);
     for (const SoilPlot& plot : soilPlots_) {
         clearedGround.push_back(SDL_FRect{plot.x, plot.y, plot.width, plot.height});
     }
+    clearedGround.push_back(SDL_FRect{
+        baseCamp_.x - 12.0f,
+        baseCamp_.y - 12.0f,
+        baseCamp_.width + 24.0f,
+        baseCamp_.height + 24.0f
+    });
 
     map_.DrawGround(renderer_, renderCamera, currentLayer_);
     DrawSoilPlots(renderCamera, true, 1000000.0f);
     map_.DrawShadows(renderer_, renderCamera, currentLayer_, &clearedGround);
     DrawFences(renderCamera, true, player_.FeetY());
+    DrawBaseCamp(renderCamera);
     map_.DrawProps(renderer_, renderCamera, player_.FeetY(), true, currentLayer_, &clearedGround);
+    DrawCombatShrine(renderCamera);
     DrawWorldEffects(renderCamera);
 
     if (currentLayer_ == 0) {
@@ -1620,6 +2054,7 @@ void App::Render() {
 
     DrawFences(renderCamera, false, player_.FeetY());
     map_.DrawProps(renderer_, renderCamera, player_.FeetY(), false, currentLayer_, &clearedGround);
+    DrawBloodEffects(renderCamera);
 
     SDL_SetRenderTarget(renderer_, nullptr);
 
@@ -1646,7 +2081,10 @@ void App::Render() {
     };
 
     SDL_RenderTexture(renderer_, frameTexture_, nullptr, &destination);
-    DrawFogOfWar(renderCamera, destination);
+    if (nightBlend_ > 0.01f) {
+        DrawFogOfWar(renderCamera, destination);
+    }
+    DrawDamageOverlay(destination);
     DrawHarvestFlyEffects(renderCamera, destination);
     hud_renderer::DrawNpcLocators(renderer_, renderCamera, destination, npcs_, nearbyNpcIndex_, kVirtualWidth);
     hud_renderer::DrawNpcBubbles(renderer_, renderCamera, destination, npcs_, kVirtualWidth);
@@ -1659,7 +2097,8 @@ void App::Render() {
                          heldItem_ == HeldItem::Fence ? "FENCE" :
                          heldItem_ == HeldItem::Soil ? "SOIL" :
                          heldItem_ == HeldItem::Seed ? "SEED" :
-                         heldItem_ == HeldItem::Rod ? "ROD" : "BOW");
+                         heldItem_ == HeldItem::Rod ? "ROD" : "BOW",
+                         BuildPhaseLabel(), BuildObjectiveLabel());
     SDL_RenderPresent(renderer_);
 }
 
@@ -1754,6 +2193,11 @@ void App::UpdateEffects(float dt, bool moving) {
         shakeOffsetX_ = 0.0f;
         shakeOffsetY_ = 0.0f;
     }
+
+    damageOverlayTimer_ = std::max(0.0f, damageOverlayTimer_ - dt);
+    if (damageOverlayTimer_ == 0.0f) {
+        damageOverlayStrength_ = std::max(0.0f, damageOverlayStrength_ - (dt * 2.2f));
+    }
 }
 
 void App::DrawWorldEffects(const Camera2D& camera) {
@@ -1778,17 +2222,6 @@ void App::DrawWorldEffects(const Camera2D& camera) {
         const float screenX = std::floor(d.worldX - camera.x);
         const float screenY = std::floor(d.worldY - camera.y);
         SDL_FRect bit{screenX, screenY, d.size, d.size};
-        SDL_RenderFillRect(renderer_, &bit);
-    }
-
-    for (const BloodParticle& b : bloodParticles_) {
-        const float t = std::clamp(b.life / b.maxLife, 0.0f, 1.0f);
-        const std::uint8_t a = static_cast<std::uint8_t>((1.0f - t) * 110.0f);
-        SDL_SetRenderDrawColor(renderer_, b.red, b.green, b.blue, a);
-
-        const float screenX = std::floor(b.worldX - camera.x);
-        const float screenY = std::floor(b.worldY - camera.y);
-        SDL_FRect bit{screenX, screenY, b.size, b.size};
         SDL_RenderFillRect(renderer_, &bit);
     }
 
@@ -1825,6 +2258,80 @@ void App::DrawWorldEffects(const Camera2D& camera) {
         SDL_RenderFillRect(renderer_, &bobberTop);
     }
 
+}
+
+void App::DrawBloodEffects(const Camera2D& camera) {
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+    for (const BloodParticle& b : bloodParticles_) {
+        const float t = std::clamp(b.life / b.maxLife, 0.0f, 1.0f);
+        const std::uint8_t a = static_cast<std::uint8_t>((1.0f - t) * 190.0f);
+        SDL_SetRenderDrawColor(renderer_, b.red, b.green, b.blue, a);
+
+        const float screenX = std::floor(b.worldX - camera.x);
+        const float screenY = std::floor(b.worldY - camera.y);
+        SDL_FRect bit{screenX, screenY, b.size, b.size};
+        SDL_RenderFillRect(renderer_, &bit);
+
+        SDL_SetRenderDrawColor(renderer_, 118, 24, 28, static_cast<Uint8>(a * 0.6f));
+        SDL_FRect glow{screenX - 1.0f, screenY - 1.0f, b.size + 1.0f, b.size + 1.0f};
+        SDL_RenderFillRect(renderer_, &glow);
+    }
+}
+
+void App::DrawDamageOverlay(const SDL_FRect& destination) {
+    if (damageOverlayStrength_ <= 0.0f) {
+        return;
+    }
+
+    const float pulse = 0.88f + (0.12f * std::sin(fogAnimTime_ * 10.0f));
+    const float strength = std::clamp(damageOverlayStrength_ * pulse, 0.0f, 1.0f);
+    const float viewScale = std::max(1.0f, destination.w / static_cast<float>(kVirtualWidth));
+    const float outerEdge = std::max(18.0f, 24.0f * viewScale);
+    const float middleEdge = outerEdge * 0.72f;
+    const float innerEdge = outerEdge * 0.42f;
+    const float cornerSize = outerEdge * 1.55f;
+
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+
+    const auto drawRing = [&](float edge, Uint8 alpha, SDL_Color color) {
+        SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, alpha);
+        SDL_FRect top{destination.x, destination.y, destination.w, edge};
+        SDL_FRect bottom{destination.x, destination.y + destination.h - edge, destination.w, edge};
+        SDL_FRect left{destination.x, destination.y + edge, edge, destination.h - (edge * 2.0f)};
+        SDL_FRect right{destination.x + destination.w - edge, destination.y + edge, edge, destination.h - (edge * 2.0f)};
+        SDL_RenderFillRect(renderer_, &top);
+        SDL_RenderFillRect(renderer_, &bottom);
+        SDL_RenderFillRect(renderer_, &left);
+        SDL_RenderFillRect(renderer_, &right);
+    };
+
+    drawRing(outerEdge, static_cast<Uint8>(30.0f + (52.0f * strength)), SDL_Color{74, 5, 8, 255});
+    drawRing(middleEdge, static_cast<Uint8>(18.0f + (38.0f * strength)), SDL_Color{122, 12, 16, 255});
+    drawRing(innerEdge, static_cast<Uint8>(8.0f + (24.0f * strength)), SDL_Color{176, 34, 38, 255});
+
+    const auto drawCorner = [&](float x, float y) {
+        SDL_SetRenderDrawColor(renderer_, 88, 6, 9, static_cast<Uint8>(46.0f + (72.0f * strength)));
+        SDL_FRect outer{x, y, cornerSize, cornerSize};
+        SDL_RenderFillRect(renderer_, &outer);
+
+        SDL_SetRenderDrawColor(renderer_, 150, 18, 22, static_cast<Uint8>(24.0f + (46.0f * strength)));
+        SDL_FRect mid{x + (cornerSize * 0.18f), y + (cornerSize * 0.18f), cornerSize * 0.56f, cornerSize * 0.56f};
+        SDL_RenderFillRect(renderer_, &mid);
+    };
+
+    drawCorner(destination.x, destination.y);
+    drawCorner(destination.x + destination.w - cornerSize, destination.y);
+    drawCorner(destination.x, destination.y + destination.h - cornerSize);
+    drawCorner(destination.x + destination.w - cornerSize, destination.y + destination.h - cornerSize);
+
+    SDL_SetRenderDrawColor(renderer_, 120, 8, 12, static_cast<Uint8>(6.0f + (14.0f * strength)));
+    SDL_FRect haze{
+        destination.x + (destination.w * 0.14f),
+        destination.y + (destination.h * 0.14f),
+        destination.w * 0.72f,
+        destination.h * 0.72f
+    };
+    SDL_RenderFillRect(renderer_, &haze);
 }
 
 void App::DrawHarvestFlyEffects(const Camera2D& camera, const SDL_FRect& destination) {
@@ -2120,6 +2627,12 @@ void App::DrawPlacementPreview(const Camera2D& camera) {
 }
 
 void App::DrawFogOfWar(const Camera2D& camera, const SDL_FRect& destination) {
+    if (nightBlend_ <= 0.01f) {
+        return;
+    }
+
+    const float blend = nightBlend_ * nightBlend_ * (3.0f - (2.0f * nightBlend_));
+
     void* pixels = nullptr;
     int pitch = 0;
     if (!SDL_LockTexture(fogTexture_, nullptr, &pixels, &pitch)) {
@@ -2161,7 +2674,7 @@ void App::DrawFogOfWar(const Camera2D& camera, const SDL_FRect& destination) {
         });
     }
 
-    const float maxAlpha = 220.0f;
+    const float maxAlpha = 220.0f * blend;
 
     std::uint8_t* row = static_cast<std::uint8_t*>(pixels);
     const float cx = static_cast<float>(kVirtualWidth) * 0.5f;
